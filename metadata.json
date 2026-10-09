@@ -1,0 +1,6 @@
+{
+  "name": "Comment2DM",
+  "description": "Comment karo. DM automatically chala jayega. Automated Instagram comment-to-DM growth tool for creators and businesses.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
