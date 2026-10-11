@@ -362,9 +362,9 @@ export const SimulatorView: React.FC = () => {
                     {activeStepIndex >= 4 ? '✓' : '4'}
                   </div>
                   <div>
-                    <span className="text-xs font-semibold block">Demo DM sent ✓</span>
+                    <span className="text-xs font-semibold block">Demo Private Reply sent ✓</span>
                     <span className="text-[11px] text-slate-400 block">
-                      Dispatched to recipient inbox in simulated environment
+                      Dispatched via POST /&lt;IG_USER_ID&gt;/messages using comment ID (within 7-day limit)
                     </span>
                   </div>
                 </div>
@@ -390,24 +390,33 @@ export const SimulatorView: React.FC = () => {
                   <pre>
                     {JSON.stringify(
                       {
-                        object: 'instagram',
-                        entry: [
-                          {
-                            id: '17841400012345678',
-                            time: Date.now(),
-                            changes: [
-                              {
-                                field: 'comments',
-                                value: {
-                                  from: { id: '9876543210', username },
-                                  media: { id: '1792345678901234' },
-                                  id: 'comment_' + Date.now(),
-                                  text: commentText,
+                        webhook_event: {
+                          object: 'instagram',
+                          entry: [
+                            {
+                              id: '17841400012345678',
+                              time: Math.floor(Date.now() / 1000),
+                              changes: [
+                                {
+                                  field: 'comments',
+                                  value: {
+                                    id: 'comment_' + Date.now(),
+                                    text: commentText,
+                                    created_time: Math.floor(Date.now() / 1000),
+                                    from: { id: '9876543210', username },
+                                    media: { id: '1792345678901234' },
+                                  },
                                 },
-                              },
-                            ],
-                          },
-                        ],
+                              ],
+                            },
+                          ],
+                        },
+                        private_reply_dispatch: {
+                          endpoint: 'POST /17841400012345678/messages',
+                          recipient: { comment_id: 'comment_' + Date.now() },
+                          message: { text: result?.preparedMessage || 'Hey @' + username + '! Here is your link: ' },
+                          enforced_rules: ['once_per_comment', 'within_7_days'],
+                        },
                       },
                       null,
                       2

@@ -565,7 +565,7 @@ export const LandingPage: React.FC = () => {
             </div>
 
             <button
-              onClick={() => setActiveTab('simulator')}
+              onClick={() => setActiveTab('signup')}
               className="w-full py-2.5 text-xs font-semibold text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
             >
               Get Started Free
@@ -617,7 +617,7 @@ export const LandingPage: React.FC = () => {
             </div>
 
             <button
-              onClick={() => setActiveTab('campaigns')}
+              onClick={() => setActiveTab('signup')}
               className="w-full py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-md shadow-indigo-600/30 transition-all cursor-pointer"
             >
               Start 14-Day Free Trial

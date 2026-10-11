@@ -1,5 +1,14 @@
 export type MatchType = 'exact' | 'contains';
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  createdAt: string;
+  plan?: 'Free' | 'Pro' | 'Business';
+}
+
 export interface InstagramPost {
   id: string;
   type: 'reel' | 'post' | 'carousel';
@@ -77,4 +86,15 @@ export interface SimulatorExecutionResult {
   errorReason?: string;
 }
 
-export type ActiveTab = 'landing' | 'dashboard' | 'campaigns' | 'simulator' | 'templates' | 'instagram' | 'settings';
+export type ActiveTab =
+  | 'landing'
+  | 'dashboard'
+  | 'campaigns'
+  | 'simulator'
+  | 'templates'
+  | 'analytics'
+  | 'instagram'
+  | 'settings'
+  | 'login'
+  | 'signup'
+  | 'forgot-password';

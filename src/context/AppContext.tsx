@@ -7,6 +7,7 @@ import {
   ActiveTab,
   SimulatorExecutionResult,
   SimulatorStep,
+  User,
 } from '../types';
 import {
   INITIAL_CAMPAIGNS,
@@ -21,9 +22,27 @@ export interface ToastItem {
   type: 'success' | 'info' | 'error';
 }
 
+interface StoredAccount {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string; // simulated hash/password for demo store
+  avatar?: string;
+  createdAt: string;
+  plan: 'Free' | 'Pro' | 'Business';
+}
+
 interface AppContextType {
+  user: User | null;
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
+  navigateTo: (tab: ActiveTab) => void;
+  signup: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => void;
+  forgotPassword: (email: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  authRedirectNotice: string | null;
+  clearAuthNotice: () => void;
   campaigns: Campaign[];
   templates: Template[];
   posts: InstagramPost[];
@@ -59,17 +78,111 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
+  USERS_DB: 'comment2dm_users_db_v2',
+  AUTH_USER: 'comment2dm_auth_user_v2',
   CAMPAIGNS: 'comment2dm_campaigns_v1',
   TEMPLATES: 'comment2dm_templates_v1',
   LOGS: 'comment2dm_logs_v1',
   IG_CONNECTED: 'comment2dm_ig_connected_v1',
 };
 
+const DEFAULT_DEMO_ACCOUNT: StoredAccount = {
+  id: 'user_demo_01',
+  name: 'Creator Studio',
+  email: 'demo@comment2dm.com',
+  passwordHash: 'demo123456',
+  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+  createdAt: '2026-03-01',
+  plan: 'Pro',
+};
+
+const PROTECTED_TABS: ActiveTab[] = [
+  'dashboard',
+  'campaigns',
+  'simulator',
+  'templates',
+  'analytics',
+  'instagram',
+  'settings',
+];
+
+// Helper to parse path into ActiveTab
+function getTabFromPath(path: string): ActiveTab {
+  const clean = path.replace(/^\//, '').split('?')[0].toLowerCase();
+  switch (clean) {
+    case 'login':
+      return 'login';
+    case 'signup':
+      return 'signup';
+    case 'forgot-password':
+      return 'forgot-password';
+    case 'dashboard':
+      return 'dashboard';
+    case 'campaigns':
+      return 'campaigns';
+    case 'simulator':
+      return 'simulator';
+    case 'templates':
+      return 'templates';
+    case 'analytics':
+      return 'analytics';
+    case 'instagram':
+      return 'instagram';
+    case 'settings':
+      return 'settings';
+    default:
+      return 'landing';
+  }
+}
+
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('landing');
+  // 1. Initial Users Database
+  const [usersDb, setUsersDb] = useState<StoredAccount[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.USERS_DB);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [DEFAULT_DEMO_ACCOUNT];
+  });
+
+  // 2. Initial Auth User
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+    // Default to null so user can experience landing page / login flow, or demo user if pre-logged
+    return null;
+  });
+
+  const [authRedirectNotice, setAuthRedirectNotice] = useState<string | null>(null);
+  const [redirectAfterLogin, setRedirectAfterLogin] = useState<ActiveTab | null>(null);
+
+  // 3. Tab & Routing state
+  const [activeTab, setActiveTabState] = useState<ActiveTab>(() => {
+    if (typeof window !== 'undefined') {
+      const initialTab = getTabFromPath(window.location.pathname);
+      // Check if protected and unauthenticated
+      if (PROTECTED_TABS.includes(initialTab)) {
+        try {
+          const authUser = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
+          if (!authUser) {
+            return 'login';
+          }
+        } catch {}
+      }
+      return initialTab;
+    }
+    return 'landing';
+  });
+
   const [posts] = useState<InstagramPost[]>(INITIAL_POSTS);
 
-  // Initialize from localStorage or fallback to initial mock data
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CAMPAIGNS);
@@ -110,38 +223,66 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  // Persist state updates
+  // Persist Users DB & Auth User
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.CAMPAIGNS, JSON.stringify(campaigns));
+      localStorage.setItem(STORAGE_KEYS.USERS_DB, JSON.stringify(usersDb));
     } catch (e) {
       console.warn('LocalStorage save failed', e);
     }
+  }, [usersDb]);
+
+  useEffect(() => {
+    try {
+      if (user) {
+        localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(user));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.AUTH_USER);
+      }
+    } catch (e) {
+      console.warn('LocalStorage save failed', e);
+    }
+  }, [user]);
+
+  // Persist campaigns, templates, logs, instagram state
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.CAMPAIGNS, JSON.stringify(campaigns));
+    } catch {}
   }, [campaigns]);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(templates));
-    } catch (e) {
-      console.warn('LocalStorage save failed', e);
-    }
+    } catch {}
   }, [templates]);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(activityLogs));
-    } catch (e) {
-      console.warn('LocalStorage save failed', e);
-    }
+    } catch {}
   }, [activityLogs]);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.IG_CONNECTED, JSON.stringify(isInstagramConnected));
-    } catch (e) {
-      console.warn('LocalStorage save failed', e);
-    }
+    } catch {}
   }, [isInstagramConnected]);
+
+  // Listen to browser forward/back buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const target = getTabFromPath(window.location.pathname);
+      if (PROTECTED_TABS.includes(target) && !user) {
+        setAuthRedirectNotice(`Please log in to access /${target}`);
+        setActiveTabState('login');
+      } else {
+        setActiveTabState(target);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [user]);
 
   const addToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     const id = 'toast_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
@@ -153,6 +294,144 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const clearAuthNotice = () => {
+    setAuthRedirectNotice(null);
+  };
+
+  // Safe navigation with route guard and history update
+  const navigateTo = (tab: ActiveTab) => {
+    const isProtected = PROTECTED_TABS.includes(tab);
+
+    if (isProtected && !user) {
+      setAuthRedirectNotice(`Please log in to access your ${tab} dashboard.`);
+      setRedirectAfterLogin(tab);
+      setActiveTabState('login');
+      try {
+        window.history.pushState(null, '', '/login');
+      } catch {}
+      return;
+    }
+
+    setAuthRedirectNotice(null);
+    setActiveTabState(tab);
+    try {
+      const urlPath = tab === 'landing' ? '/' : `/${tab}`;
+      window.history.pushState(null, '', urlPath);
+    } catch {}
+  };
+
+  // Backwards compatibility alias
+  const setActiveTab = (tab: ActiveTab) => {
+    navigateTo(tab);
+  };
+
+  // Auth Operations
+  const signup = async (
+    name: string,
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    // Artificial small delay for realistic UX feedback
+    await new Promise((r) => setTimeout(r, 450));
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Check existing
+    const exists = usersDb.some((u) => u.email.toLowerCase() === normalizedEmail);
+    if (exists) {
+      return { success: false, error: 'An account with this email already exists. Please log in.' };
+    }
+
+    const newUser: StoredAccount = {
+      id: 'user_' + Date.now(),
+      name: name.trim(),
+      email: normalizedEmail,
+      passwordHash: password,
+      createdAt: new Date().toISOString().split('T')[0],
+      plan: 'Free',
+    };
+
+    setUsersDb((prev) => [...prev, newUser]);
+
+    const authenticatedUser: User = {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      createdAt: newUser.createdAt,
+      plan: newUser.plan,
+    };
+
+    setUser(authenticatedUser);
+    addToast(`Welcome to Comment2DM, ${authenticatedUser.name}!`);
+
+    // Redirect to requested tab or dashboard
+    const target = redirectAfterLogin || 'dashboard';
+    setRedirectAfterLogin(null);
+    navigateTo(target);
+
+    return { success: true };
+  };
+
+  const login = async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    await new Promise((r) => setTimeout(r, 400));
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const account = usersDb.find(
+      (u) => u.email.toLowerCase() === normalizedEmail && u.passwordHash === password
+    );
+
+    if (!account) {
+      return { success: false, error: 'Invalid email or password. Check credentials or try demo login.' };
+    }
+
+    const authenticatedUser: User = {
+      id: account.id,
+      name: account.name,
+      email: account.email,
+      avatar: account.avatar,
+      createdAt: account.createdAt,
+      plan: account.plan,
+    };
+
+    setUser(authenticatedUser);
+    addToast(`Welcome back, ${authenticatedUser.name}!`);
+
+    const target = redirectAfterLogin || 'dashboard';
+    setRedirectAfterLogin(null);
+    navigateTo(target);
+
+    return { success: true };
+  };
+
+  const logout = () => {
+    setUser(null);
+    addToast('You have been logged out.');
+    navigateTo('login');
+  };
+
+  const forgotPassword = async (
+    email: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> => {
+    await new Promise((r) => setTimeout(r, 350));
+    const normalizedEmail = email.toLowerCase().trim();
+    const account = usersDb.find((u) => u.email.toLowerCase() === normalizedEmail);
+
+    if (!account) {
+      return {
+        success: false,
+        error: 'No account registered with this email address.',
+      };
+    }
+
+    return {
+      success: true,
+      message: `Reset link generated for ${account.email}. You can reset your password now.`,
+    };
   };
 
   const toggleInstagramConnection = () => {
@@ -169,6 +448,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const openCreateCampaign = (initial?: Partial<Campaign>) => {
+    // If not logged in, prompt login
+    if (!user) {
+      setAuthRedirectNotice('Please log in to create and manage campaigns.');
+      navigateTo('login');
+      return;
+    }
+
     setEditingCampaign(
       initial
         ? {
@@ -208,13 +494,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const saveCampaign = (data: Partial<Campaign>) => {
     if (editingCampaign && editingCampaign.id) {
-      // Update existing
       setCampaigns((prev) =>
         prev.map((c) => (c.id === editingCampaign.id ? { ...c, ...data } : c))
       );
       addToast(`Campaign "${data.name || editingCampaign.name}" updated successfully!`);
     } else {
-      // Create new
       const matchedPost = posts.find((p) => p.id === data.postId) || posts[0];
       const newCampaign: Campaign = {
         id: 'camp_' + Date.now(),
@@ -284,7 +568,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const saveTemplate = (templateData: Partial<Template>) => {
     if (templateData.id) {
       setTemplates((prev) =>
-        prev.map((t) => (t.id === templateData.id ? { ...t, ...templateData } as Template : t))
+        prev.map((t) => (t.id === templateData.id ? ({ ...t, ...templateData } as Template) : t))
       );
       addToast(`Template updated.`);
     } else {
@@ -322,7 +606,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const applyTemplateToNewCampaign = (tpl: Template) => {
-    // Update usage count
     setTemplates((prev) =>
       prev.map((t) => (t.id === tpl.id ? { ...t, usageCount: t.usageCount + 1 } : t))
     );
@@ -332,10 +615,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       message: tpl.message,
       link: tpl.defaultLink,
     });
-    setActiveTab('campaigns');
+    navigateTo('campaigns');
   };
 
-  // Matching helper function
   const matchKeyword = (
     comment: string,
     keywordRule: string,
@@ -348,13 +630,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     for (const kw of keywords) {
       const targetKw = caseInsensitive ? kw.toLowerCase() : kw;
       if (matchType === 'exact') {
-        // Strip punctuation like !?., and compare words or trimmed text
         const cleanComment = textToSearch.replace(/[^\w\s]/gi, '').trim();
         if (cleanComment === targetKw || cleanComment === targetKw.replace(/[^\w\s]/gi, '')) {
           return { matched: true, detectedKeyword: kw };
         }
       } else {
-        // contains
         if (textToSearch.includes(targetKw)) {
           return { matched: true, detectedKeyword: kw };
         }
@@ -378,7 +658,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       { id: 'send', label: 'Demo DM sent', status: 'pending' },
     ];
 
-    // Find candidate campaign
     let targetCampaign: Campaign | undefined;
     let matchedKw = '';
 
@@ -394,12 +673,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (matched) {
           matchedKw = detectedKeyword;
         } else {
-          // Fallback: check if any keyword matches
           matchedKw = targetCampaign.keyword.split(',')[0].trim();
         }
       }
     } else {
-      // Find first active campaign that matches
       for (const camp of campaigns.filter((c) => c.status === 'active')) {
         const { matched, detectedKeyword } = matchKeyword(
           cleanComment,
@@ -416,12 +693,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     if (!targetCampaign) {
-      // If none found, pick the first active one or first campaign as demonstration
       targetCampaign = campaigns.find((c) => c.status === 'active') || campaigns[0];
       matchedKw = targetCampaign?.keyword.split(',')[0].trim() || 'LINK';
     }
 
-    // Prepare message
     const firstName = cleanUsername.split('_')[0].split('.')[0];
     const preparedMessage = (targetCampaign?.message || 'Hello {{username}}! Here is your link: {{link}}')
       .replace(/{{username}}/g, `@${cleanUsername}`)
@@ -444,7 +719,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       responseTimeMs: Math.floor(650 + Math.random() * 400),
     };
 
-    // Update campaign counts
     setCampaigns((prev) =>
       prev.map((c) => {
         if (c.id === targetCampaign?.id) {
@@ -458,7 +732,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
     );
 
-    // Add activity log
     setActivityLogs((prev) => [newLog, ...prev]);
 
     return {
@@ -515,9 +788,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.removeItem(STORAGE_KEYS.TEMPLATES);
       localStorage.removeItem(STORAGE_KEYS.LOGS);
       localStorage.removeItem(STORAGE_KEYS.IG_CONNECTED);
-    } catch (e) {
-      console.warn(e);
-    }
+    } catch {}
     addToast('Demo database restored to default sample state.', 'info');
   };
 
@@ -532,7 +803,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addToast(`New simulated follower comment received from @${randomUser}!`);
   };
 
-  // Aggregated metrics
   const totalComments = campaigns.reduce((acc, c) => acc + c.commentsCount, 0);
   const totalDMsSent = campaigns.reduce((acc, c) => acc + c.dmsSentCount, 0);
   const totalClicks = campaigns.reduce((acc, c) => acc + c.clicksCount, 0);
@@ -541,8 +811,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   return (
     <AppContext.Provider
       value={{
+        user,
         activeTab,
         setActiveTab,
+        navigateTo,
+        signup,
+        login,
+        logout,
+        forgotPassword,
+        authRedirectNotice,
+        clearAuthNotice,
         campaigns,
         templates,
         posts,
