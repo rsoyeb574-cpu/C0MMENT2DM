@@ -132,6 +132,8 @@ export type ActiveTab =
   | 'simulator'
   | 'templates'
   | 'analytics'
+  | 'coach'
+  | 'followup'
   | 'instagram'
   | 'settings'
   | 'login'
@@ -204,3 +206,63 @@ export interface AISuggestionResult {
   callToAction: string;
   qualificationQuestions: string[];
 }
+
+// Tracked Link Redirect Click Event
+export interface TrackedClickEvent {
+  id: string;
+  timestamp: string;
+  rawTime: number;
+  campaignId: string;
+  campaignName: string;
+  leadId?: string;
+  username?: string;
+  destinationUrl: string;
+  referrer: string;
+  userAgent?: string;
+}
+
+// Metric Reliability Labeling
+export type MetricReliability = 'Measured' | 'Estimated' | 'Unavailable';
+
+// Follow-up Assistant Types
+export type FollowUpTemplateCategory =
+  | 'need_details'
+  | 'faq'
+  | 'offer_link'
+  | 'consultation'
+  | 'reengage';
+
+export interface FollowUpTemplate {
+  id: string;
+  title: string;
+  category: FollowUpTemplateCategory;
+  description: string;
+  templateText: string;
+  suggestedTiming: string;
+}
+
+export type MessagingWindowStatus =
+  | 'active_24h'
+  | 'active_7d_reply'
+  | 'outside_window';
+
+export interface OutboundFollowUpRecord {
+  id: string;
+  leadId: string;
+  username: string;
+  templateCategory: FollowUpTemplateCategory;
+  finalMessage: string;
+  verifiedFactsUsed: string[];
+  aiReasoning: string;
+  approvedByUser: boolean;
+  sentAt: string;
+  metaDeliveryStatus: 'Sent successfully' | 'Pending delivery' | 'Failed';
+}
+
+// Campaign Coach Types
+export type CoachQuestionId =
+  | 'best_campaign'
+  | 'best_keywords'
+  | 'lead_dropoff'
+  | 'what_to_test_next';
+

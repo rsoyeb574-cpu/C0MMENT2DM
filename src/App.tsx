@@ -13,6 +13,8 @@ import { InstagramView } from './pages/InstagramView';
 import { SettingsView } from './pages/SettingsView';
 import { LeadInboxView } from './pages/LeadInboxView';
 import { OnboardingView } from './pages/OnboardingView';
+import { CampaignCoachView } from './pages/CampaignCoachView';
+import { FollowUpAssistantView } from './pages/FollowUpAssistantView';
 import { LoginPage, SignupPage, ForgotPasswordPage } from './pages/AuthPages';
 import { CampaignEditorModal } from './pages/CampaignEditorModal';
 import {
@@ -25,6 +27,8 @@ import {
   Settings,
   Inbox,
   Compass,
+  BrainCircuit,
+  MessageSquareHeart,
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -146,6 +150,8 @@ const AppContent: React.FC = () => {
           {activeTab === 'simulator' && <SimulatorView />}
           {activeTab === 'templates' && <TemplatesView />}
           {activeTab === 'analytics' && <AnalyticsView />}
+          {activeTab === 'coach' && <CampaignCoachView />}
+          {activeTab === 'followup' && <FollowUpAssistantView />}
           {activeTab === 'instagram' && <InstagramView />}
           {activeTab === 'settings' && <SettingsView />}
         </main>

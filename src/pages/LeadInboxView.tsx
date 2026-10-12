@@ -20,6 +20,7 @@ import {
   HelpCircle,
   Send,
   Sparkles,
+  MessageSquareHeart,
 } from 'lucide-react';
 
 export const LeadInboxView: React.FC = () => {
@@ -30,6 +31,7 @@ export const LeadInboxView: React.FC = () => {
     deleteLead,
     campaigns,
     addToast,
+    navigateTo,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -435,11 +437,20 @@ export const LeadInboxView: React.FC = () => {
                   className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
                 />
 
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => navigateTo('followup')}
+                    className="px-3 py-1.5 text-xs font-semibold text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <MessageSquareHeart className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Open in Follow-up Assistant</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleSaveNotes}
-                    className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg cursor-pointer transition-colors"
                   >
                     Save Notes
                   </button>

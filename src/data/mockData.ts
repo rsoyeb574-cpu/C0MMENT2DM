@@ -586,3 +586,91 @@ export const INITIAL_LEADS: Lead[] = [
     updatedAt: '2026-04-12 11:45:00',
   },
 ];
+
+export const INITIAL_FOLLOWUP_TEMPLATES: import('../types').FollowUpTemplate[] = [
+  {
+    id: 'fup_details',
+    title: 'Ask If They Need Details',
+    category: 'need_details',
+    description: 'Polite low-pressure check-in to see if they reviewed the resource or have questions.',
+    templateText:
+      'Hey @{{username}}! 👋 Did you get a chance to check out {{offer}}? Let me know if you need any details or want me to walk you through anything!',
+    suggestedTiming: '4 to 8 hours after initial DM delivery',
+  },
+  {
+    id: 'fup_faq',
+    title: 'Answer Common Questions',
+    category: 'faq',
+    description: 'Proactively clears the 3 most frequent objections regarding pricing, timing, or access.',
+    templateText:
+      'Hey @{{username}}! 🙌 A few quick answers to questions people ask about {{offer}}:\n1. Beginner friendly? Yes, step-by-step.\n2. Lifetime access? Absolutely.\n3. Direct link: {{link}}\n\nDrop any questions right here!',
+    suggestedTiming: '12 to 24 hours after initial DM delivery',
+  },
+  {
+    id: 'fup_link',
+    title: 'Share Offer Link Again',
+    category: 'offer_link',
+    description: 'Re-shares destination link in case notifications got buried in Instagram DMs.',
+    templateText:
+      'Hey @{{username}}! Just wanted to make sure your direct access link didn\'t get buried in your DMs:\n\n👉 {{link}}\n\nBookmark it or save it so you have it handy! 🚀',
+    suggestedTiming: '24 hours after initial comment',
+  },
+  {
+    id: 'fup_consultation',
+    title: 'Book a Consultation / Call',
+    category: 'consultation',
+    description: 'Invites warm prospects to a 1-on-1 strategy audit or advisory session.',
+    templateText:
+      'Hey @{{username}}! 📅 If you\'d like 1-on-1 feedback on implementing {{offer}}, I opened a few private 15-min strategy slots this week:\n\n{{link}}\n\nGrab a slot if you want me to audit your setup!',
+    suggestedTiming: '24 to 48 hours for warm leads',
+  },
+  {
+    id: 'fup_reengage',
+    title: 'Re-engage Before Window Closes',
+    category: 'reengage',
+    description: 'Urgency-driven check-in before discount or cohort enrollment closes.',
+    templateText:
+      'Hey @{{username}}! Quick reminder that registration for {{offer}} is closing soon. Still interested in getting access? Reply YES and I will save your spot! ✨',
+    suggestedTiming: '48 to 72 hours before campaign deadline',
+  },
+];
+
+export const INITIAL_TRACKED_CLICKS: import('../types').TrackedClickEvent[] = [
+  {
+    id: 'click_1',
+    timestamp: '2026-04-12 14:12:00',
+    rawTime: Date.now() - 1000 * 60 * 18,
+    campaignId: 'camp_2',
+    campaignName: 'AI Agency Prompt Sheet & Tools',
+    leadId: 'lead_2',
+    username: 'ananya_design',
+    destinationUrl: 'https://docs.google.com/spreadsheets/d/ai-agency-prompts',
+    referrer: 'Instagram Mobile App (Direct Message link preview)',
+    userAgent: 'Instagram 320.0.0 iOS',
+  },
+  {
+    id: 'click_2',
+    timestamp: '2026-04-12 13:56:00',
+    rawTime: Date.now() - 1000 * 60 * 34,
+    campaignId: 'camp_3',
+    campaignName: 'Minimalist Desk Gear Affiliate Links',
+    leadId: 'lead_4',
+    username: 'sneha_growth',
+    destinationUrl: 'https://kit.co/creatorhub/minimal-desk-setup',
+    referrer: 'Instagram Mobile App (Direct Message link preview)',
+    userAgent: 'Instagram 320.0.0 Android',
+  },
+  {
+    id: 'click_3',
+    timestamp: '2026-04-12 13:45:00',
+    rawTime: Date.now() - 1000 * 60 * 45,
+    campaignId: 'camp_1',
+    campaignName: 'Free 32-Page SaaS Blueprint PDF',
+    leadId: 'lead_1',
+    username: 'rahul_dev',
+    destinationUrl: 'https://gumroad.com/l/saas-blueprint-free',
+    referrer: 'Instagram Mobile App (Direct Message link preview)',
+    userAgent: 'Instagram 320.0.0 iOS',
+  },
+];
+

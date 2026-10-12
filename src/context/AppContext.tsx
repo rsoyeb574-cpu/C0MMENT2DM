@@ -12,6 +12,10 @@ import {
   InstagramErrorLog,
   Lead,
   LeadStatus,
+  TrackedClickEvent,
+  FollowUpTemplate,
+  OutboundFollowUpRecord,
+  FollowUpTemplateCategory,
 } from '../types';
 import {
   INITIAL_CAMPAIGNS,
@@ -20,6 +24,8 @@ import {
   INITIAL_ACTIVITY_LOGS,
   INITIAL_ERROR_LOGS,
   INITIAL_LEADS,
+  INITIAL_FOLLOWUP_TEMPLATES,
+  INITIAL_TRACKED_CLICKS,
 } from '../data/mockData';
 
 export interface ToastItem {
@@ -79,6 +85,18 @@ interface AppContextType {
   applyTemplateToNewCampaign: (template: Template) => void;
   runSimulator: (username: string, commentText: string, specificCampaignId?: string) => Promise<SimulatorExecutionResult>;
   recordLinkClick: (logId: string) => void;
+  trackedClicks: TrackedClickEvent[];
+  recordTrackedClick: (campaignId: string, leadId?: string, referrer?: string) => void;
+  followUpTemplates: FollowUpTemplate[];
+  updateFollowUpTemplate: (id: string, newText: string, newTitle?: string) => void;
+  outboundFollowUps: OutboundFollowUpRecord[];
+  approveAndSendFollowUp: (
+    leadId: string,
+    message: string,
+    templateCategory: FollowUpTemplateCategory,
+    verifiedFactsUsed: string[],
+    aiReasoning: string
+  ) => void;
   resetAllData: () => void;
   seedDemoActivity: () => void;
   toasts: ToastItem[];
@@ -100,6 +118,9 @@ const STORAGE_KEYS = {
   LOGS: 'comment2dm_logs_v2',
   ERRORS: 'comment2dm_errors_v2',
   LEADS: 'comment2dm_leads_v2',
+  TRACKED_CLICKS: 'comment2dm_tracked_clicks_v2',
+  FOLLOWUP_TEMPLATES: 'comment2dm_fup_templates_v2',
+  OUTBOUND_FOLLOWUPS: 'comment2dm_fup_outbound_v2',
   IG_CONNECTED: 'comment2dm_ig_connected_v2',
 };
 
@@ -121,6 +142,8 @@ const PROTECTED_TABS: ActiveTab[] = [
   'simulator',
   'templates',
   'analytics',
+  'coach',
+  'followup',
   'instagram',
   'settings',
 ];
@@ -148,6 +171,10 @@ function getTabFromPath(path: string): ActiveTab {
       return 'templates';
     case 'analytics':
       return 'analytics';
+    case 'coach':
+      return 'coach';
+    case 'followup':
+      return 'followup';
     case 'instagram':
       return 'instagram';
     case 'settings':
@@ -263,6 +290,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   });
 
+  const [trackedClicks, setTrackedClicks] = useState<TrackedClickEvent[]>(() => {
+    try {
+      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
+      const parsedUser = authUser ? JSON.parse(authUser) : null;
+      const userId = parsedUser?.id || 'demo';
+      const saved = localStorage.getItem(`${STORAGE_KEYS.TRACKED_CLICKS}_${userId}`);
+      return saved ? JSON.parse(saved) : (userId === 'user_demo_01' || userId === 'demo' ? INITIAL_TRACKED_CLICKS : []);
+    } catch {
+      return INITIAL_TRACKED_CLICKS;
+    }
+  });
+
+  const [followUpTemplates, setFollowUpTemplates] = useState<FollowUpTemplate[]>(() => {
+    try {
+      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
+      const parsedUser = authUser ? JSON.parse(authUser) : null;
+      const userId = parsedUser?.id || 'demo';
+      const saved = localStorage.getItem(`${STORAGE_KEYS.FOLLOWUP_TEMPLATES}_${userId}`);
+      return saved ? JSON.parse(saved) : INITIAL_FOLLOWUP_TEMPLATES;
+    } catch {
+      return INITIAL_FOLLOWUP_TEMPLATES;
+    }
+  });
+
+  const [outboundFollowUps, setOutboundFollowUps] = useState<OutboundFollowUpRecord[]>(() => {
+    try {
+      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
+      const parsedUser = authUser ? JSON.parse(authUser) : null;
+      const userId = parsedUser?.id || 'demo';
+      const saved = localStorage.getItem(`${STORAGE_KEYS.OUTBOUND_FOLLOWUPS}_${userId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [isInstagramConnected, setIsInstagramConnected] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.IG_CONNECTED);
@@ -326,6 +389,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setLeads(userId === 'user_demo_01' || userId === 'demo' ? INITIAL_LEADS : []);
       }
     } catch {}
+
+    try {
+      const savedClicks = localStorage.getItem(`${STORAGE_KEYS.TRACKED_CLICKS}_${userId}`);
+      if (savedClicks) {
+        setTrackedClicks(JSON.parse(savedClicks));
+      } else {
+        setTrackedClicks(userId === 'user_demo_01' || userId === 'demo' ? INITIAL_TRACKED_CLICKS : []);
+      }
+    } catch {}
+
+    try {
+      const savedFupTpls = localStorage.getItem(`${STORAGE_KEYS.FOLLOWUP_TEMPLATES}_${userId}`);
+      if (savedFupTpls) {
+        setFollowUpTemplates(JSON.parse(savedFupTpls));
+      } else {
+        setFollowUpTemplates(INITIAL_FOLLOWUP_TEMPLATES);
+      }
+    } catch {}
+
+    try {
+      const savedOutbound = localStorage.getItem(`${STORAGE_KEYS.OUTBOUND_FOLLOWUPS}_${userId}`);
+      if (savedOutbound) {
+        setOutboundFollowUps(JSON.parse(savedOutbound));
+      } else {
+        setOutboundFollowUps([]);
+      }
+    } catch {}
   }, [user?.id]);
 
   // Persist Users DB & Auth User
@@ -380,6 +470,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.setItem(`${STORAGE_KEYS.LEADS}_${userId}`, JSON.stringify(leads));
     } catch {}
   }, [leads, user?.id]);
+
+  useEffect(() => {
+    const userId = user?.id || 'demo';
+    try {
+      localStorage.setItem(`${STORAGE_KEYS.TRACKED_CLICKS}_${userId}`, JSON.stringify(trackedClicks));
+    } catch {}
+  }, [trackedClicks, user?.id]);
+
+  useEffect(() => {
+    const userId = user?.id || 'demo';
+    try {
+      localStorage.setItem(`${STORAGE_KEYS.FOLLOWUP_TEMPLATES}_${userId}`, JSON.stringify(followUpTemplates));
+    } catch {}
+  }, [followUpTemplates, user?.id]);
+
+  useEffect(() => {
+    const userId = user?.id || 'demo';
+    try {
+      localStorage.setItem(`${STORAGE_KEYS.OUTBOUND_FOLLOWUPS}_${userId}`, JSON.stringify(outboundFollowUps));
+    } catch {}
+  }, [outboundFollowUps, user?.id]);
 
   useEffect(() => {
     try {
@@ -1019,13 +1130,137 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     if (affectedCampaignId) {
-      setCampaigns((prev) =>
-        prev.map((c) =>
-          c.id === affectedCampaignId ? { ...c, clicksCount: c.clicksCount + 1 } : c
-        )
-      );
-      addToast('Simulated link click registered! Campaign CTR updated.', 'success');
+      recordTrackedClick(affectedCampaignId, undefined, 'Test Simulator Link');
     }
+  };
+
+  const recordTrackedClick = (campaignId: string, leadId?: string, referrer = 'Tracked Redirect (Direct Message)') => {
+    const camp = campaigns.find((c) => c.id === campaignId);
+    const lead = leadId ? leads.find((l) => l.id === leadId) : undefined;
+    const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    const newClick: TrackedClickEvent = {
+      id: 'clk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      timestamp: nowIso,
+      rawTime: Date.now(),
+      campaignId,
+      campaignName: camp?.name || 'Active Campaign',
+      leadId,
+      username: lead?.username || (leadId ? 'user' : 'instagram_follower'),
+      destinationUrl: camp?.link || 'https://gumroad.com/l/resource',
+      referrer,
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Instagram Mobile Webview',
+    };
+
+    setTrackedClicks((prev) => [newClick, ...prev]);
+
+    // Update campaign metrics
+    setCampaigns((prev) =>
+      prev.map((c) => (c.id === campaignId ? { ...c, clicksCount: c.clicksCount + 1 } : c))
+    );
+
+    // Update lead timeline & status if lead identified
+    if (leadId) {
+      setLeads((prev) =>
+        prev.map((l) => {
+          if (l.id === leadId) {
+            const updatedTimeline = [
+              ...l.timeline,
+              {
+                stage: 'Result recorded' as const,
+                timestamp: new Date().toLocaleTimeString(),
+                detail: `Tracked link clicked: visited destination "${camp?.link || 'offer link'}"`,
+                success: true,
+              },
+            ];
+            return {
+              ...l,
+              status: l.status === 'New' || l.status === 'Link sent' ? 'Interested' : l.status,
+              timeline: updatedTimeline,
+              updatedAt: nowIso,
+            };
+          }
+          return l;
+        })
+      );
+    }
+
+    addToast(`Link click verified & recorded for campaign "${camp?.name || campaignId}"!`, 'success');
+  };
+
+  const updateFollowUpTemplate = (id: string, newText: string, newTitle?: string) => {
+    setFollowUpTemplates((prev) =>
+      prev.map((t) => {
+        if (t.id === id) {
+          return {
+            ...t,
+            templateText: newText,
+            title: newTitle || t.title,
+          };
+        }
+        return t;
+      })
+    );
+    addToast('Follow-up template saved successfully.', 'success');
+  };
+
+  const approveAndSendFollowUp = (
+    leadId: string,
+    message: string,
+    templateCategory: FollowUpTemplateCategory,
+    verifiedFactsUsed: string[],
+    aiReasoning: string
+  ) => {
+    const targetLead = leads.find((l) => l.id === leadId);
+    if (!targetLead) {
+      addToast('Lead not found in inbox.', 'error');
+      return;
+    }
+
+    const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const outboundRecord: OutboundFollowUpRecord = {
+      id: 'fup_out_' + Date.now(),
+      leadId,
+      username: targetLead.username,
+      templateCategory,
+      finalMessage: message,
+      verifiedFactsUsed,
+      aiReasoning,
+      approvedByUser: true,
+      sentAt: nowIso,
+      metaDeliveryStatus: 'Sent successfully',
+    };
+
+    setOutboundFollowUps((prev) => [outboundRecord, ...prev]);
+
+    // Update lead notes and timeline in Lead Inbox
+    setLeads((prev) =>
+      prev.map((l) => {
+        if (l.id === leadId) {
+          const updatedTimeline = [
+            ...l.timeline,
+            {
+              stage: 'Sent' as const,
+              timestamp: new Date().toLocaleTimeString(),
+              detail: `Manual approved follow-up sent: "${message.slice(0, 48)}..."`,
+              success: true,
+            },
+          ];
+          return {
+            ...l,
+            status: 'Needs follow-up' as const,
+            notes:
+              (l.notes ? l.notes + '\n' : '') +
+              `[Follow-up Approved ${new Date().toLocaleTimeString()}]: "${message.slice(0, 60)}..."`,
+            timeline: updatedTimeline,
+            updatedAt: nowIso,
+          };
+        }
+        return l;
+      })
+    );
+
+    addToast(`Follow-up approved & sent to @${targetLead.username} via official Instagram DM!`, 'success');
   };
 
   const resetAllData = () => {
@@ -1034,6 +1269,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setActivityLogs(INITIAL_ACTIVITY_LOGS);
     setErrorLogs(INITIAL_ERROR_LOGS);
     setLeads(INITIAL_LEADS);
+    setTrackedClicks(INITIAL_TRACKED_CLICKS);
+    setFollowUpTemplates(INITIAL_FOLLOWUP_TEMPLATES);
+    setOutboundFollowUps([]);
     setIsInstagramConnected(false);
     try {
       const userId = user?.id || 'demo';
@@ -1042,6 +1280,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.removeItem(`${STORAGE_KEYS.LOGS}_${userId}`);
       localStorage.removeItem(`${STORAGE_KEYS.ERRORS}_${userId}`);
       localStorage.removeItem(`${STORAGE_KEYS.LEADS}_${userId}`);
+      localStorage.removeItem(`${STORAGE_KEYS.TRACKED_CLICKS}_${userId}`);
+      localStorage.removeItem(`${STORAGE_KEYS.FOLLOWUP_TEMPLATES}_${userId}`);
+      localStorage.removeItem(`${STORAGE_KEYS.OUTBOUND_FOLLOWUPS}_${userId}`);
       localStorage.removeItem(STORAGE_KEYS.IG_CONNECTED);
     } catch {}
     addToast('Demo database restored to default sample state.', 'info');
@@ -1106,6 +1347,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         applyTemplateToNewCampaign,
         runSimulator,
         recordLinkClick,
+        trackedClicks,
+        recordTrackedClick,
+        followUpTemplates,
+        updateFollowUpTemplate,
+        outboundFollowUps,
+        approveAndSendFollowUp,
         resetAllData,
         seedDemoActivity,
         toasts,

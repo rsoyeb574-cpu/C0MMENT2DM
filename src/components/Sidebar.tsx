@@ -15,6 +15,8 @@ import {
   LogOut,
   Inbox,
   Compass,
+  BrainCircuit,
+  MessageSquareHeart,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -34,10 +36,12 @@ export const Sidebar: React.FC = () => {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'campaigns', label: 'Campaigns', icon: Layers, badge: activeCampaignsCount },
     { id: 'inbox', label: 'Lead Inbox', icon: Inbox, badge: leads.length },
-    { id: 'onboarding', label: 'Setup Guide', icon: Compass },
+    { id: 'followup', label: 'Follow-up Assistant', icon: MessageSquareHeart },
+    { id: 'coach', label: 'Campaign Coach', icon: BrainCircuit },
+    { id: 'analytics', label: 'Analytics', icon: TrendingUp },
     { id: 'simulator', label: 'Test Simulator', icon: FlaskConical },
     { id: 'templates', label: 'DM Templates', icon: FileText },
-    { id: 'analytics', label: 'Analytics', icon: TrendingUp },
+    { id: 'onboarding', label: 'Setup Guide', icon: Compass },
     {
       id: 'instagram',
       label: 'Instagram Setup',
