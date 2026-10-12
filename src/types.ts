@@ -37,18 +37,55 @@ export interface Campaign {
   commentsCount: number;
   dmsSentCount: number;
   clicksCount: number;
+
+  // Smart Campaign Builder extensions
+  offer?: string;
+  publicCommentReply?: string;
+  callToAction?: string;
+  qualificationQuestions?: string[];
+  setupVerified?: boolean;
 }
+
+export type TemplateCategory =
+  | 'ebook'
+  | 'course'
+  | 'launch'
+  | 'pricing'
+  | 'discount'
+  | 'booking'
+  | 'webinar'
+  | 'service'
+  | 'affiliate'
+  | 'pdf'
+  | 'coupon'
+  | 'whatsapp'
+  | 'youtube'
+  | 'custom';
 
 export interface Template {
   id: string;
   title: string;
-  category: 'pdf' | 'course' | 'affiliate' | 'coupon' | 'whatsapp' | 'youtube' | 'custom';
+  category: TemplateCategory;
   keywordSuggestion: string;
+  offer?: string;
   message: string;
+  publicCommentReply?: string;
+  callToAction?: string;
   defaultLink: string;
   description: string;
   usageCount: number;
+  qualificationQuestions?: string[];
 }
+
+export type AppStatus =
+  | 'Demo mode'
+  | 'Setup required'
+  | 'Connected'
+  | 'Waiting for authorization'
+  | 'Processing'
+  | 'Sent successfully'
+  | 'Failed'
+  | 'Needs attention';
 
 export interface ActivityLog {
   id: string;
@@ -60,7 +97,7 @@ export interface ActivityLog {
   matchedKeyword: string;
   dmMessage: string;
   link: string;
-  status: 'delivered' | 'skipped_duplicate' | 'no_keyword_match';
+  status: AppStatus;
   clicked: boolean;
   clickTimestamp?: string;
   responseTimeMs: number;
@@ -90,6 +127,8 @@ export type ActiveTab =
   | 'landing'
   | 'dashboard'
   | 'campaigns'
+  | 'inbox'
+  | 'onboarding'
   | 'simulator'
   | 'templates'
   | 'analytics'
@@ -98,3 +137,70 @@ export type ActiveTab =
   | 'login'
   | 'signup'
   | 'forgot-password';
+
+export interface InstagramErrorLog {
+  id: string;
+  timestamp: string;
+  type: 'webhook_rejected' | 'api_call_failed' | 'rule_violation' | 'auth_error';
+  endpoint: string;
+  status: 'Failed' | 'Needs attention';
+  errorCode: string;
+  commentId?: string;
+  reason: string;
+  payloadSummary?: string;
+}
+
+// Lead Inbox Interfaces
+export type LeadStatus =
+  | 'New'
+  | 'Interested'
+  | 'Needs follow-up'
+  | 'Link sent'
+  | 'Converted'
+  | 'Not interested';
+
+export type LeadTimelineStage =
+  | 'Comment detected'
+  | 'Campaign matched'
+  | 'Eligibility checked'
+  | 'Message prepared'
+  | 'Sent'
+  | 'Result recorded';
+
+export interface LeadTimelineEvent {
+  stage: LeadTimelineStage;
+  timestamp: string;
+  detail: string;
+  success: boolean;
+}
+
+export interface Lead {
+  id: string;
+  username: string;
+  userAvatar?: string;
+  comment: string;
+  commentId: string;
+  commentTime: string;
+  campaignId: string;
+  campaignName: string;
+  matchedKeyword: string;
+  dmSent: string;
+  link: string;
+  status: LeadStatus;
+  notes: string;
+  source: string;
+  postThumbnail?: string;
+  qualificationAnswers?: Array<{ question: string; answer: string }>;
+  timeline: LeadTimelineEvent[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// AI Suggestion Result
+export interface AISuggestionResult {
+  keywords: string[];
+  publicReplies: string[];
+  dmMessage: string;
+  callToAction: string;
+  qualificationQuestions: string[];
+}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { StatusBadge } from '../components/StatusBadge';
 import {
   TrendingUp,
   MousePointerClick,
@@ -13,6 +14,8 @@ import {
   Sparkles,
   Layers,
   CheckCircle2,
+  Instagram,
+  ShieldAlert,
 } from 'lucide-react';
 
 export const AnalyticsView: React.FC = () => {
@@ -22,9 +25,11 @@ export const AnalyticsView: React.FC = () => {
     totalDMsSent,
     totalClicks,
     activeCampaignsCount,
+    setActiveTab,
     addToast,
   } = useApp();
 
+  const [dataMode, setDataMode] = useState<'demo' | 'live'>('demo');
   const [timeRange, setTimeRange] = useState<'7d' | '30d'>('7d');
 
   const matchRate = totalComments > 0 ? ((totalDMsSent / totalComments) * 100).toFixed(1) : '96.4';
@@ -73,267 +78,269 @@ export const AnalyticsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Mode Toggle */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-indigo-400" />
-            <span>Conversion Analytics & Performance</span>
-          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-indigo-400" />
+              <span>Conversion Analytics & Performance</span>
+            </h1>
+            <StatusBadge status={dataMode === 'demo' ? 'Demo mode' : 'Setup required'} />
+          </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            Deep dive into keyword match rates, DM delivery velocity, and destination link CTR.
+            {dataMode === 'demo'
+              ? 'Showing simulated sandbox performance benchmarks. Real Meta analytics are separated.'
+              : 'Live analytics dashboard. Requires active Instagram Business authorization.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {/* Data Mode Toggle */}
           <div className="flex items-center gap-1 p-1 bg-slate-900 rounded-lg border border-slate-800">
             <button
-              onClick={() => setTimeRange('7d')}
+              onClick={() => setDataMode('demo')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                timeRange === '7d'
-                  ? 'bg-slate-800 text-white shadow-sm'
+                dataMode === 'demo'
+                  ? 'bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Last 7 Days
+              Demo Sandbox
             </button>
             <button
-              onClick={() => setTimeRange('30d')}
+              onClick={() => setDataMode('live')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                timeRange === '30d'
-                  ? 'bg-slate-800 text-white shadow-sm'
+                dataMode === 'live'
+                  ? 'bg-indigo-600 text-white font-semibold'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Last 30 Days
+              Live Analytics
             </button>
           </div>
 
-          <button
-            onClick={handleExportCsv}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
-          </button>
-        </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Inbound Comments</span>
-            <MessageSquare className="w-4 h-4 text-slate-500" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-white font-mono tabular-nums">
-              {totalComments.toLocaleString()}
-            </span>
-            <span className="text-[11px] text-emerald-400 font-mono">+24.2%</span>
-          </div>
-          <span className="text-[10px] text-slate-500 block">Total detected on active reels</span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Match Rate</span>
-            <Zap className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-amber-300 font-mono tabular-nums">
-              {matchRate}%
-            </span>
-            <span className="text-[11px] text-slate-500">trigger rate</span>
-          </div>
-          <span className="text-[10px] text-slate-500 block">Comments containing valid triggers</span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>DMs Delivered</span>
-            <Send className="w-4 h-4 text-indigo-400" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-indigo-300 font-mono tabular-nums">
-              {totalDMsSent.toLocaleString()}
-            </span>
-            <span className="text-[11px] text-emerald-400 font-mono">99.2% rate</span>
-          </div>
-          <span className="text-[10px] text-slate-500 block">Avg dispatch latency: 840ms</span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Link Clicks (CTR)</span>
-            <MousePointerClick className="w-4 h-4 text-rose-400" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-rose-300 font-mono tabular-nums">
-              {totalClicks.toLocaleString()}
-            </span>
-            <span className="text-[11px] font-bold text-emerald-400 font-mono tabular-nums">
-              {ctrRate}% CTR
-            </span>
-          </div>
-          <span className="text-[10px] text-slate-500 block">High intent clicks on DM link</span>
-        </div>
-      </div>
-
-      {/* Conversion Funnel */}
-      <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-200">
-          Audience Conversion Pipeline (Drop-off Analysis)
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-2">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Step 1: Comment Left</span>
-              <span className="font-mono text-white font-bold">100%</span>
-            </div>
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-              <div className="bg-slate-400 h-full w-full rounded-full" />
-            </div>
-            <span className="text-[11px] text-slate-400 font-mono tabular-nums">
-              {totalComments} followers commented
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-2">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Step 2: Keyword Matched</span>
-              <span className="font-mono text-amber-400 font-bold">{matchRate}%</span>
-            </div>
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-              <div
-                style={{ width: `${matchRate}%` }}
-                className="bg-amber-400 h-full rounded-full"
-              />
-            </div>
-            <span className="text-[11px] text-slate-400 font-mono tabular-nums">
-              Exact / Contains rule verified
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-2">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Step 3: DM Delivered</span>
-              <span className="font-mono text-indigo-400 font-bold">96.8%</span>
-            </div>
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-              <div className="bg-indigo-500 h-full w-[96.8%] rounded-full" />
-            </div>
-            <span className="text-[11px] text-slate-400 font-mono tabular-nums">
-              {totalDMsSent} DMs in inbox
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-2">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Step 4: Link Clicked</span>
-              <span className="font-mono text-rose-400 font-bold">{ctrRate}%</span>
-            </div>
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-              <div
-                style={{ width: `${Math.min(100, parseFloat(ctrRate))}%` }}
-                className="bg-rose-500 h-full rounded-full"
-              />
-            </div>
-            <span className="text-[11px] text-slate-400 font-mono tabular-nums">
-              {totalClicks} link clicks recorded
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Volume Timeline Chart */}
-      <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-200">
-            Engagement Velocity Over Time
-          </h2>
-          <span className="text-xs text-slate-400">Daily breakdown</span>
-        </div>
-
-        <div className="h-44 w-full flex items-end justify-between gap-3 px-2 pt-4">
-          {chartData.map((d, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center gap-2 group h-full justify-end">
-              <div className="w-full flex items-end justify-center gap-1.5 h-32">
-                <div
-                  style={{ height: `${(d.comments / maxComments) * 100}%` }}
-                  className="w-3 bg-slate-700 group-hover:bg-slate-600 rounded-t transition-all"
-                  title={`Comments: ${d.comments}`}
-                />
-                <div
-                  style={{ height: `${(d.dms / maxComments) * 100}%` }}
-                  className="w-3 bg-indigo-500 group-hover:bg-indigo-400 rounded-t transition-all"
-                  title={`DMs Sent: ${d.dms}`}
-                />
-                <div
-                  style={{ height: `${(d.clicks / maxComments) * 100}%` }}
-                  className="w-3 bg-rose-500 group-hover:bg-rose-400 rounded-t transition-all"
-                  title={`Clicks: ${d.clicks}`}
-                />
+          {dataMode === 'demo' && (
+            <>
+              <div className="flex items-center gap-1 p-1 bg-slate-900 rounded-lg border border-slate-800">
+                <button
+                  onClick={() => setTimeRange('7d')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                    timeRange === '7d'
+                      ? 'bg-slate-800 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Last 7 Days
+                </button>
+                <button
+                  onClick={() => setTimeRange('30d')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                    timeRange === '30d'
+                      ? 'bg-slate-800 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Last 30 Days
+                </button>
               </div>
-              <span className="text-[11px] font-mono text-slate-400">{d.day}</span>
+
+              <button
+                onClick={handleExportCsv}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {dataMode === 'live' ? (
+        /* Honest Live Unconfigured State */
+        <div className="p-10 rounded-xl bg-slate-900 border border-slate-800 text-center space-y-4">
+          <div className="w-12 h-12 rounded-xl bg-slate-800 mx-auto flex items-center justify-center text-slate-400">
+            <Instagram className="w-6 h-6" />
+          </div>
+          <div className="max-w-md mx-auto space-y-1">
+            <div className="flex items-center justify-center gap-2">
+              <h2 className="text-base font-bold text-slate-200">No Live Instagram Account Authorized</h2>
+              <StatusBadge status="Setup required" />
             </div>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-center gap-6 pt-3 border-t border-slate-800/80 text-xs text-slate-400">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-sm bg-slate-700" />
-            <span>Comments</span>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              We never fabricate live numbers. To collect real comment conversion metrics and link click analytics, configure your Meta Instagram Business Login credentials.
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500" />
-            <span>DMs Dispatched</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-sm bg-rose-500" />
-            <span>Link Clicks</span>
+          <div className="pt-2 flex justify-center gap-3">
+            <button
+              onClick={() => setDataMode('demo')}
+              className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+            >
+              View Demo Sandbox Analytics
+            </button>
+            <button
+              onClick={() => setActiveTab('instagram')}
+              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm transition-all cursor-pointer"
+            >
+              Open Instagram Setup
+            </button>
           </div>
         </div>
-      </div>
+      ) : (
+        /* Demo Mode KPIs and Visuals */
+        <>
+          {/* Key Metric Highlights */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
+              <span className="text-xs text-slate-400 block mb-1">Simulated Match Rate</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold font-mono text-slate-100 tabular-nums">
+                  {matchRate}%
+                </span>
+                <span className="text-[10px] text-amber-400/90 font-mono">sandbox</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Comments matching trigger rules</p>
+            </div>
 
-      {/* Top Keywords Leaderboard */}
-      <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-200">
-          Keyword Conversion Leaderboard
-        </h2>
+            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
+              <span className="text-xs text-slate-400 block mb-1">Average Dispatch Speed</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold font-mono text-indigo-400 tabular-nums">
+                  ~820ms
+                </span>
+                <span className="text-[10px] text-emerald-400 font-mono">sub-second</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Webhook parse to DM pipeline</p>
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-800 text-slate-400 font-medium">
-                <th className="pb-3 font-medium">Trigger Keyword</th>
-                <th className="pb-3 font-medium">Times Triggered</th>
-                <th className="pb-3 font-medium">DMs Dispatched</th>
-                <th className="pb-3 font-medium">Link Clicks</th>
-                <th className="pb-3 font-medium text-right">Click-Through Rate</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60 text-slate-300">
-              {keywordStats.map((k, i) => (
-                <tr key={i} className="hover:bg-slate-950/40 transition-colors">
-                  <td className="py-3">
-                    <span className="font-mono font-bold text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2 py-0.5 rounded">
-                      "{k.keyword}"
-                    </span>
-                  </td>
-                  <td className="py-3 font-mono tabular-nums">{k.triggerCount}</td>
-                  <td className="py-3 font-mono tabular-nums text-slate-200">{k.dmsSent}</td>
-                  <td className="py-3 font-mono tabular-nums text-rose-300">{k.clicks}</td>
-                  <td className="py-3 font-mono tabular-nums font-bold text-emerald-400 text-right">
-                    {k.ctr}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
+              <span className="text-xs text-slate-400 block mb-1">Simulated CTR (Clicks / DMs)</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold font-mono text-rose-300 tabular-nums">
+                  {ctrRate}%
+                </span>
+                <span className="text-[10px] text-amber-400/90 font-mono">benchmark</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Followers tapping DM link</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
+              <span className="text-xs text-slate-400 block mb-1">Active Sandbox Automations</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
+                  {activeCampaignsCount}
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">of {campaigns.length} total</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Campaigns actively listening</p>
+            </div>
+          </div>
+
+          {/* Time Series Bar Chart */}
+          <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-200">
+                  Simulated Volume & Conversion Distribution ({timeRange === '7d' ? 'Last 7 Days' : 'Last 30 Days'})
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Visual breakdown of comments vs automated DMs prepared vs tracked clicks
+                </p>
+              </div>
+              <span className="text-[10px] font-mono text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                Sandbox Simulation
+              </span>
+            </div>
+
+            <div className="h-52 w-full flex items-end justify-between gap-3 pt-4 px-2">
+              {chartData.map((d, idx) => {
+                const commentH = Math.round((d.comments / maxComments) * 100);
+                const dmH = Math.round((d.dms / maxComments) * 100);
+                const clickH = Math.round((d.clicks / maxComments) * 100);
+
+                return (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-2 group h-full justify-end">
+                    <div className="w-full flex items-end justify-center gap-1 h-40">
+                      <div
+                        style={{ height: `${commentH}%` }}
+                        className="w-3 bg-slate-700 group-hover:bg-slate-600 rounded-t transition-all"
+                        title={`Comments: ${d.comments}`}
+                      />
+                      <div
+                        style={{ height: `${dmH}%` }}
+                        className="w-3 bg-indigo-500 group-hover:bg-indigo-400 rounded-t transition-all"
+                        title={`DMs: ${d.dms}`}
+                      />
+                      <div
+                        style={{ height: `${clickH}%` }}
+                        className="w-3 bg-rose-500 group-hover:bg-rose-400 rounded-t transition-all"
+                        title={`Clicks: ${d.clicks}`}
+                      />
+                    </div>
+                    <span className="text-[11px] font-mono text-slate-400">{d.day}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-center gap-6 pt-3 border-t border-slate-800 text-xs text-slate-400">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-sm bg-slate-700" />
+                <span>Simulated Comments</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500" />
+                <span>DMs Prepared</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-sm bg-rose-500" />
+                <span>Link Clicks</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Keyword Performance Table */}
+          <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
+            <h2 className="text-sm font-semibold text-slate-200">
+              Simulated Keyword Performance Ranking
+            </h2>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 font-medium">
+                    <th className="pb-3">Keyword</th>
+                    <th className="pb-3">Trigger Events</th>
+                    <th className="pb-3">DMs Dispatched</th>
+                    <th className="pb-3">Link Clicks</th>
+                    <th className="pb-3 text-right">Click-Through Rate</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800 text-slate-300">
+                  {keywordStats.map((stat, idx) => (
+                    <tr key={idx} className="hover:bg-slate-950/40">
+                      <td className="py-3 font-mono font-bold text-indigo-300">
+                        "{stat.keyword}"
+                      </td>
+                      <td className="py-3 font-mono tabular-nums">{stat.triggerCount}</td>
+                      <td className="py-3 font-mono tabular-nums text-slate-200">
+                        {stat.dmsSent}
+                      </td>
+                      <td className="py-3 font-mono tabular-nums text-rose-300">
+                        {stat.clicks}
+                      </td>
+                      <td className="py-3 font-mono tabular-nums font-bold text-emerald-400 text-right">
+                        {stat.ctr}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

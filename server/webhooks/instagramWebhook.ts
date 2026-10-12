@@ -147,7 +147,11 @@ export async function handleWebhookEvent(req: Request, res: Response): Promise<v
         results.push({
           commentId,
           username: commenterUsername,
-          status: replyResult.success ? 'delivered' : 'failed',
+          status: replyResult.success
+            ? replyResult.mode === 'demo'
+              ? 'Demo mode'
+              : 'Sent successfully'
+            : 'Failed',
           detail: replyResult.detail,
         });
       }

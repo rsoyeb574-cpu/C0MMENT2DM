@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { PhoneMockup } from '../components/PhoneMockup';
+import { StatusBadge } from '../components/StatusBadge';
 import { SimulatorExecutionResult } from '../types';
 import {
   FlaskConical,
@@ -52,24 +53,31 @@ export const SimulatorView: React.FC = () => {
     setResult(null);
     setActiveStepIndex(0);
 
-    // Step 1: Detect keyword
-    await new Promise((r) => setTimeout(r, 350));
+    // Stage 1: Comment detected
+    await new Promise((r) => setTimeout(r, 250));
     setActiveStepIndex(1);
 
-    // Step 2: Match campaign
-    await new Promise((r) => setTimeout(r, 400));
+    // Stage 2: Campaign matched
+    await new Promise((r) => setTimeout(r, 250));
     setActiveStepIndex(2);
 
-    // Step 3: Prepare DM
-    await new Promise((r) => setTimeout(r, 350));
+    // Stage 3: Eligibility checked
+    await new Promise((r) => setTimeout(r, 250));
     setActiveStepIndex(3);
 
-    // Step 4: Dispatch DM
-    const execResult = await runSimulator(username, commentText, selectedCampaignId || undefined);
-    await new Promise((r) => setTimeout(r, 300));
-
-    setResult(execResult);
+    // Stage 4: Message prepared
+    await new Promise((r) => setTimeout(r, 250));
     setActiveStepIndex(4);
+
+    // Stage 5: Sent
+    const execResult = await runSimulator(username, commentText, selectedCampaignId || undefined);
+    await new Promise((r) => setTimeout(r, 250));
+    setActiveStepIndex(5);
+
+    // Stage 6: Result recorded
+    await new Promise((r) => setTimeout(r, 200));
+    setResult(execResult);
+    setActiveStepIndex(6);
     setIsRunning(false);
   };
 
@@ -83,13 +91,11 @@ export const SimulatorView: React.FC = () => {
       <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 flex items-start gap-3">
         <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
         <div className="flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
               DEMO MODE — No real Instagram message was sent.
             </span>
-            <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">
-              In-Memory Sandbox
-            </span>
+            <StatusBadge status="Demo mode" />
           </div>
           <p className="text-xs text-slate-300 mt-1 leading-relaxed">
             This test engine simulates real-time Instagram Graph API webhooks and direct message dispatch logic. It allows you to safely test keywords, copy personalization, and link delivery without Meta verification or risk of shadowbans.
@@ -232,8 +238,8 @@ export const SimulatorView: React.FC = () => {
               )}
             </div>
 
-            <div className="space-y-3">
-              {/* Step 1: Keyword detected */}
+            <div className="space-y-2.5">
+              {/* Stage 1: Comment detected */}
               <div
                 className={`p-3 rounded-lg border flex items-center justify-between transition-all ${
                   activeStepIndex >= 1
@@ -256,11 +262,9 @@ export const SimulatorView: React.FC = () => {
                     {activeStepIndex >= 1 ? '✓' : '1'}
                   </div>
                   <div>
-                    <span className="text-xs font-semibold block">Keyword detected ✓</span>
+                    <span className="text-xs font-semibold block">Comment detected ✓</span>
                     <span className="text-[11px] text-slate-400 block">
-                      {result?.matchedKeyword
-                        ? `Found trigger keyword: "${result.matchedKeyword}"`
-                        : 'Scans comment text using match engine'}
+                      Parsed incoming webhook event from @{username}
                     </span>
                   </div>
                 </div>
@@ -269,7 +273,7 @@ export const SimulatorView: React.FC = () => {
                 </span>
               </div>
 
-              {/* Step 2: Campaign matched */}
+              {/* Stage 2: Campaign matched */}
               <div
                 className={`p-3 rounded-lg border flex items-center justify-between transition-all ${
                   activeStepIndex >= 2
@@ -295,8 +299,8 @@ export const SimulatorView: React.FC = () => {
                     <span className="text-xs font-semibold block">Campaign matched ✓</span>
                     <span className="text-[11px] text-slate-400 block">
                       {result?.matchedCampaign
-                        ? `Matched: "${result.matchedCampaign.name}"`
-                        : 'Verifies active status and user rate limit rules'}
+                        ? `Matched rule: "${result.matchedCampaign.name}"`
+                        : 'Scanned trigger keywords'}
                     </span>
                   </div>
                 </div>
@@ -305,7 +309,7 @@ export const SimulatorView: React.FC = () => {
                 </span>
               </div>
 
-              {/* Step 3: DM prepared */}
+              {/* Stage 3: Eligibility checked */}
               <div
                 className={`p-3 rounded-lg border flex items-center justify-between transition-all ${
                   activeStepIndex >= 3
@@ -328,9 +332,9 @@ export const SimulatorView: React.FC = () => {
                     {activeStepIndex >= 3 ? '✓' : '3'}
                   </div>
                   <div>
-                    <span className="text-xs font-semibold block">DM prepared ✓</span>
+                    <span className="text-xs font-semibold block">Eligibility checked ✓</span>
                     <span className="text-[11px] text-slate-400 block">
-                      Variables {'{{username}}'} & {'{{link}}'} injected dynamically
+                      7-day comment freshness verified & single private reply limit enforced
                     </span>
                   </div>
                 </div>
@@ -339,7 +343,7 @@ export const SimulatorView: React.FC = () => {
                 </span>
               </div>
 
-              {/* Step 4: Demo DM sent */}
+              {/* Stage 4: Message prepared */}
               <div
                 className={`p-3 rounded-lg border flex items-center justify-between transition-all ${
                   activeStepIndex >= 4
@@ -362,15 +366,100 @@ export const SimulatorView: React.FC = () => {
                     {activeStepIndex >= 4 ? '✓' : '4'}
                   </div>
                   <div>
-                    <span className="text-xs font-semibold block">Demo Private Reply sent ✓</span>
+                    <span className="text-xs font-semibold block">Message prepared ✓</span>
                     <span className="text-[11px] text-slate-400 block">
-                      Dispatched via POST /&lt;IG_USER_ID&gt;/messages using comment ID (within 7-day limit)
+                      Personalized variables and destination URL merged
                     </span>
                   </div>
                 </div>
                 <span className="text-[10px] font-mono text-slate-500">
-                  {activeStepIndex >= 4 ? 'Delivered' : 'Wait'}
+                  {activeStepIndex >= 4 ? 'OK' : 'Wait'}
                 </span>
+              </div>
+
+              {/* Stage 5: Sent */}
+              <div
+                className={`p-3 rounded-lg border flex items-center justify-between transition-all ${
+                  activeStepIndex >= 5
+                    ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
+                    : activeStepIndex === 4
+                    ? 'bg-indigo-950/30 border-indigo-500/40 text-indigo-200 animate-pulse'
+                    : 'bg-slate-950/50 border-slate-800/80 text-slate-500'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      activeStepIndex >= 5
+                        ? 'bg-emerald-500 text-slate-950'
+                        : activeStepIndex === 4
+                        ? 'bg-indigo-500 text-white'
+                        : 'bg-slate-800 text-slate-500'
+                    }`}
+                  >
+                    {activeStepIndex >= 5 ? '✓' : '5'}
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold block">Sent ✓</span>
+                    <span className="text-[11px] text-slate-400 block">
+                      Dispatched private reply via Graph API recipient.comment_id
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {activeStepIndex >= 5 ? 'OK' : 'Wait'}
+                </span>
+              </div>
+
+              {/* Stage 6: Result recorded */}
+              <div
+                className={`p-3 rounded-lg border flex items-center justify-between transition-all ${
+                  activeStepIndex >= 6
+                    ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
+                    : activeStepIndex === 5
+                    ? 'bg-indigo-950/30 border-indigo-500/40 text-indigo-200 animate-pulse'
+                    : 'bg-slate-950/50 border-slate-800/80 text-slate-500'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      activeStepIndex >= 6
+                        ? 'bg-emerald-500 text-slate-950'
+                        : activeStepIndex === 5
+                        ? 'bg-indigo-500 text-white'
+                        : 'bg-slate-800 text-slate-500'
+                    }`}
+                  >
+                    {activeStepIndex >= 6 ? '✓' : '6'}
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold block">Result recorded ✓</span>
+                    <span className="text-[11px] text-slate-400 block">
+                      Saved in Lead Inbox CRM with full status timeline
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeStepIndex >= 6 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('inbox')}
+                      className="px-2 py-1 text-[10px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded cursor-pointer"
+                    >
+                      View in Inbox
+                    </button>
+                  )}
+                  <StatusBadge
+                    status={
+                      activeStepIndex >= 6
+                        ? 'Demo mode'
+                        : activeStepIndex >= 4
+                        ? 'Processing'
+                        : 'Waiting for authorization'
+                    }
+                  />
+                </div>
               </div>
             </div>
 

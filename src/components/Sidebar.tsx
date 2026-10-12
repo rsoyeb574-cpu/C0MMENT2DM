@@ -13,6 +13,8 @@ import {
   FlaskConical,
   ExternalLink,
   LogOut,
+  Inbox,
+  Compass,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -23,12 +25,16 @@ export const Sidebar: React.FC = () => {
     navigateTo,
     openCreateCampaign,
     activeCampaignsCount,
+    leads,
     isInstagramConnected,
+    instagramStatus,
   } = useApp();
 
   const navItems: { id: ActiveTab; label: string; icon: React.FC<{ className?: string }>; badge?: string | number }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'campaigns', label: 'Campaigns', icon: Layers, badge: activeCampaignsCount },
+    { id: 'inbox', label: 'Lead Inbox', icon: Inbox, badge: leads.length },
+    { id: 'onboarding', label: 'Setup Guide', icon: Compass },
     { id: 'simulator', label: 'Test Simulator', icon: FlaskConical },
     { id: 'templates', label: 'DM Templates', icon: FileText },
     { id: 'analytics', label: 'Analytics', icon: TrendingUp },
@@ -36,7 +42,7 @@ export const Sidebar: React.FC = () => {
       id: 'instagram',
       label: 'Instagram Setup',
       icon: Instagram,
-      badge: isInstagramConnected ? 'Connected' : 'Demo',
+      badge: instagramStatus,
     },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -98,12 +104,26 @@ export const Sidebar: React.FC = () => {
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
               }`}
             >
-              <div className="flex items-center gap-2.5">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Icon
+                  className={`w-4 h-4 shrink-0 ${
+                    isActive ? 'text-indigo-400' : 'text-slate-500'
+                  }`}
+                />
+                <span className="truncate">{item.label}</span>
               </div>
               {item.badge !== undefined && (
-                <span className="text-[10px] font-mono tabular-nums text-slate-400 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                    isActive
+                      ? 'bg-indigo-500/20 text-indigo-300'
+                      : typeof item.badge === 'string' && item.badge === 'Connected'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : typeof item.badge === 'string' && item.badge === 'Setup required'
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
                   {item.badge}
                 </span>
               )}
@@ -112,35 +132,25 @@ export const Sidebar: React.FC = () => {
         })}
       </nav>
 
-      {/* Sandbox Notice & Logout */}
-      <div className="p-3 border-t border-slate-800/60 mt-auto space-y-2">
-        <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400">
-          <div className="flex items-center gap-1.5 text-amber-400 font-medium mb-1">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Interactive Demo Sandbox</span>
+      {/* Meta API Status & Logout */}
+      <div className="p-3 border-t border-slate-800/60 space-y-2">
+        <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-400">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-semibold text-slate-300 uppercase">System Status</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
           </div>
-          <p className="text-[11px] leading-relaxed text-slate-400">
-            Instagram comment triggers and DM dispatches are simulated safely.
-          </p>
+          <span className="text-[10px] text-slate-400 block">
+            {isInstagramConnected ? 'Meta Graph API Connected' : 'Demo Sandbox Mode'}
+          </span>
         </div>
 
-        <div className="flex items-center justify-between pt-1">
-          <button
-            onClick={() => navigateTo('landing')}
-            className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 py-1 transition-colors cursor-pointer"
-          >
-            <span>Landing Page</span>
-            <ExternalLink className="w-3 h-3" />
-          </button>
-
-          <button
-            onClick={logout}
-            className="flex items-center gap-1 text-[11px] text-rose-400 hover:text-rose-300 py-1 transition-colors cursor-pointer"
-          >
-            <LogOut className="w-3 h-3" />
-            <span>Log Out</span>
-          </button>
-        </div>
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-rose-400 hover:bg-slate-900 rounded-lg transition-colors cursor-pointer"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Sign Out</span>
+        </button>
       </div>
     </aside>
   );

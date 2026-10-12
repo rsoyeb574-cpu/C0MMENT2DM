@@ -1,12 +1,18 @@
 import React from 'react';
-import { ArrowLeft, Phone, Video, Info, Send, Image as ImageIcon, Heart, ExternalLink, CheckCheck } from 'lucide-react';
+import { ArrowLeft, Phone, Video, Info, Send, Image as ImageIcon, Heart, ExternalLink, CheckCheck, MessageCircle } from 'lucide-react';
 
-interface PhoneMockupProps {
+export interface PhoneMockupProps {
   senderName?: string;
   senderHandle?: string;
   recipientHandle?: string;
-  messageText: string;
+  username?: string;
+  userAvatar?: string;
+  commentText?: string;
+  messageText?: string;
+  replyText?: string;
   linkUrl?: string;
+  link?: string;
+  postThumbnail?: string;
   onLinkClick?: () => void;
   hasClicked?: boolean;
   timeString?: string;
@@ -15,15 +21,27 @@ interface PhoneMockupProps {
 export const PhoneMockup: React.FC<PhoneMockupProps> = ({
   senderName = 'Creator Studio',
   senderHandle = 'creator_hub',
-  recipientHandle = 'follower_user',
+  recipientHandle,
+  username,
+  userAvatar,
+  commentText,
   messageText,
+  replyText,
   linkUrl,
+  link,
+  postThumbnail,
   onLinkClick,
   hasClicked = false,
   timeString = 'Just now',
 }) => {
-  // Format message text for linebreaks
-  const formattedText = messageText || 'Hey {{username}}! Here is your link: {{link}}';
+  const activeRecipient = recipientHandle || username || 'follower_user';
+  const rawText = replyText || messageText || 'Hey {{username}}! Here is your link: {{link}}';
+  const effectiveLink = link || linkUrl;
+
+  const formattedText = rawText
+    .replace(/{{username}}/g, `@${activeRecipient}`)
+    .replace(/{{first_name}}/g, activeRecipient.split('_')[0])
+    .replace(/{{link}}/g, effectiveLink || 'https://example.com/link');
 
   return (
     <div className="w-full max-w-[340px] mx-auto rounded-[36px] p-3 bg-slate-900 border border-slate-700/80 shadow-2xl flex flex-col items-center">
@@ -60,15 +78,29 @@ export const PhoneMockup: React.FC<PhoneMockupProps> = ({
 
         {/* Chat Body */}
         <div className="flex-1 p-3 overflow-y-auto space-y-3 flex flex-col justify-end bg-gradient-to-b from-slate-950 to-slate-900/60">
-          {/* Incoming simulated trigger context */}
-          <div className="text-center my-1">
-            <span className="text-[10px] text-slate-500 px-2 py-0.5 rounded bg-slate-900/60">
-              Direct message sent via Comment2DM trigger
+          {/* If a comment triggered this, show comment context pill */}
+          {commentText && (
+            <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800/80 mb-1">
+              <div className="flex items-center gap-2 mb-1">
+                <MessageCircle className="w-3 h-3 text-indigo-400 shrink-0" />
+                <span className="text-[10px] font-semibold text-slate-300">
+                  Comment on your Post
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-200 italic line-clamp-2">
+                "@{activeRecipient}: {commentText}"
+              </p>
+            </div>
+          )}
+
+          <div className="text-center my-0.5">
+            <span className="text-[9px] text-slate-500 px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800">
+              Automated Private Reply Dispatched
             </span>
           </div>
 
           {/* DM Bubble from Creator */}
-          <div className="flex items-end gap-2 max-w-[92%]">
+          <div className="flex items-end gap-2 max-w-[95%]">
             <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-amber-500 to-purple-600 flex items-center justify-center text-[9px] font-bold text-white shrink-0 mb-1">
               C
             </div>
@@ -76,13 +108,12 @@ export const PhoneMockup: React.FC<PhoneMockupProps> = ({
               <div className="bg-gradient-to-br from-indigo-600 to-violet-600 text-white rounded-2xl rounded-bl-xs p-3 text-xs leading-relaxed shadow-md">
                 <p className="whitespace-pre-wrap break-words">{formattedText}</p>
 
-                {/* If link is included, display actionable link preview card */}
-                {linkUrl && (
+                {effectiveLink && (
                   <div className="mt-2.5 pt-2.5 border-t border-white/20">
                     <div className="bg-black/30 rounded-lg p-2 flex flex-col gap-1.5 text-left">
                       <div className="flex items-center gap-1 text-[11px] font-medium text-white/90 truncate">
                         <ExternalLink className="w-3 h-3 text-indigo-200 shrink-0" />
-                        <span className="truncate">{linkUrl}</span>
+                        <span className="truncate">{effectiveLink}</span>
                       </div>
                       <button
                         type="button"

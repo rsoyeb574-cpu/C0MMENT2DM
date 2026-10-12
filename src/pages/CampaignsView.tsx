@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Campaign } from '../types';
+import { StatusBadge } from '../components/StatusBadge';
 import {
   Layers,
   PlusCircle,
@@ -48,10 +49,13 @@ export const CampaignsView: React.FC = () => {
       {/* Header and Create Button */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-            <Layers className="w-5 h-5 text-indigo-400" />
-            <span>Automated Campaigns</span>
-          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+              <Layers className="w-5 h-5 text-indigo-400" />
+              <span>Automated Campaigns</span>
+            </h1>
+            <StatusBadge status="Demo mode" />
+          </div>
           <p className="text-xs text-slate-400 mt-0.5">
             Manage your Instagram post monitors, trigger keywords, and automated direct message sequences.
           </p>
@@ -193,6 +197,20 @@ export const CampaignsView: React.FC = () => {
                     <p className="text-[11px] text-slate-400 truncate max-w-md font-mono">
                       Link: {camp.link}
                     </p>
+
+                    {camp.offer && (
+                      <p className="text-[11px] text-slate-300 truncate max-w-md">
+                        <span className="text-slate-500 font-medium">Offer: </span>
+                        <span>{camp.offer}</span>
+                      </p>
+                    )}
+
+                    {camp.publicCommentReply && (
+                      <p className="text-[11px] text-slate-400 italic truncate max-w-md">
+                        <span className="text-indigo-400 not-italic font-medium">Public Reply: </span>
+                        <span>"{camp.publicCommentReply}"</span>
+                      </p>
+                    )}
                   </div>
                 </div>
 

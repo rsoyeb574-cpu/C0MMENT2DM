@@ -11,6 +11,8 @@ import { TemplatesView } from './pages/TemplatesView';
 import { AnalyticsView } from './pages/AnalyticsView';
 import { InstagramView } from './pages/InstagramView';
 import { SettingsView } from './pages/SettingsView';
+import { LeadInboxView } from './pages/LeadInboxView';
+import { OnboardingView } from './pages/OnboardingView';
 import { LoginPage, SignupPage, ForgotPasswordPage } from './pages/AuthPages';
 import { CampaignEditorModal } from './pages/CampaignEditorModal';
 import {
@@ -21,6 +23,8 @@ import {
   TrendingUp,
   Instagram,
   Settings,
+  Inbox,
+  Compass,
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -78,6 +82,24 @@ const AppContent: React.FC = () => {
             <span>Campaigns</span>
           </button>
           <button
+            onClick={() => navigateTo('inbox')}
+            className={`p-2 rounded-lg flex flex-col items-center gap-1 text-[10px] ${
+              activeTab === 'inbox' ? 'text-indigo-400 font-bold' : 'text-slate-400'
+            }`}
+          >
+            <Inbox className="w-4 h-4" />
+            <span>Leads</span>
+          </button>
+          <button
+            onClick={() => navigateTo('onboarding')}
+            className={`p-2 rounded-lg flex flex-col items-center gap-1 text-[10px] ${
+              activeTab === 'onboarding' ? 'text-indigo-400 font-bold' : 'text-slate-400'
+            }`}
+          >
+            <Compass className="w-4 h-4" />
+            <span>Guide</span>
+          </button>
+          <button
             onClick={() => navigateTo('simulator')}
             className={`p-2 rounded-lg flex flex-col items-center gap-1 text-[10px] ${
               activeTab === 'simulator' ? 'text-indigo-400 font-bold' : 'text-slate-400'
@@ -94,15 +116,6 @@ const AppContent: React.FC = () => {
           >
             <FileText className="w-4 h-4" />
             <span>Templates</span>
-          </button>
-          <button
-            onClick={() => navigateTo('analytics')}
-            className={`p-2 rounded-lg flex flex-col items-center gap-1 text-[10px] ${
-              activeTab === 'analytics' ? 'text-indigo-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <TrendingUp className="w-4 h-4" />
-            <span>Analytics</span>
           </button>
           <button
             onClick={() => navigateTo('instagram')}
@@ -128,6 +141,8 @@ const AppContent: React.FC = () => {
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto max-w-7xl">
           {activeTab === 'dashboard' && <DashboardView />}
           {activeTab === 'campaigns' && <CampaignsView />}
+          {activeTab === 'inbox' && <LeadInboxView />}
+          {activeTab === 'onboarding' && <OnboardingView />}
           {activeTab === 'simulator' && <SimulatorView />}
           {activeTab === 'templates' && <TemplatesView />}
           {activeTab === 'analytics' && <AnalyticsView />}
@@ -148,7 +163,7 @@ const AppContent: React.FC = () => {
         {renderCurrentView()}
       </div>
 
-      {/* Campaign Create/Edit Modal */}
+      {/* Smart Campaign Create/Edit Modal */}
       <CampaignEditorModal />
 
       {/* Floating Notifications */}

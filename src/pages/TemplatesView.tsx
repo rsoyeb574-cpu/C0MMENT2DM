@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Template } from '../types';
+import { Template, TemplateCategory } from '../types';
 import {
   FileText,
   PlusCircle,
@@ -17,6 +17,11 @@ import {
   Youtube,
   X,
   AlertCircle,
+  Calendar,
+  DollarSign,
+  Rocket,
+  Briefcase,
+  Video,
 } from 'lucide-react';
 
 export const TemplatesView: React.FC = () => {
@@ -34,8 +39,11 @@ export const TemplatesView: React.FC = () => {
 
   // Form states for modal
   const [formTitle, setFormTitle] = useState('');
-  const [formCategory, setFormCategory] = useState<Template['category']>('pdf');
+  const [formCategory, setFormCategory] = useState<TemplateCategory>('ebook');
   const [formKeyword, setFormKeyword] = useState('');
+  const [formOffer, setFormOffer] = useState('');
+  const [formPublicReply, setFormPublicReply] = useState('');
+  const [formCta, setFormCta] = useState('');
   const [formMessage, setFormMessage] = useState('');
   const [formLink, setFormLink] = useState('');
   const [formDescription, setFormDescription] = useState('');
@@ -44,8 +52,11 @@ export const TemplatesView: React.FC = () => {
   const openCreateModal = () => {
     setEditingTemplate(null);
     setFormTitle('New Lead Magnet Template');
-    setFormCategory('pdf');
-    setFormKeyword('PDF, GUIDE');
+    setFormCategory('ebook');
+    setFormKeyword('EBOOK, GUIDE, PDF');
+    setFormOffer('Free 40-page actionable guide');
+    setFormPublicReply('Sent the guide directly to your DMs! 📘');
+    setFormCta('Download Free Guide');
     setFormMessage('Hey {{username}}! 📘 Here is the link: {{link}}');
     setFormLink('https://yourwebsite.com/guide.pdf');
     setFormDescription('High-converting automated lead distribution.');
@@ -58,6 +69,9 @@ export const TemplatesView: React.FC = () => {
     setFormTitle(tpl.title);
     setFormCategory(tpl.category);
     setFormKeyword(tpl.keywordSuggestion);
+    setFormOffer(tpl.offer || '');
+    setFormPublicReply(tpl.publicCommentReply || 'Sent you a DM! Check your inbox 🚀');
+    setFormCta(tpl.callToAction || 'View Link');
     setFormMessage(tpl.message);
     setFormLink(tpl.defaultLink);
     setFormDescription(tpl.description);
@@ -81,6 +95,9 @@ export const TemplatesView: React.FC = () => {
       title: formTitle.trim(),
       category: formCategory,
       keywordSuggestion: formKeyword.trim().toUpperCase(),
+      offer: formOffer.trim(),
+      publicCommentReply: formPublicReply.trim(),
+      callToAction: formCta.trim(),
       message: formMessage.trim(),
       defaultLink: formLink.trim(),
       description: formDescription.trim(),
@@ -90,26 +107,50 @@ export const TemplatesView: React.FC = () => {
 
   const getCategoryIcon = (cat: string) => {
     switch (cat) {
+      case 'ebook':
       case 'pdf':
         return <BookOpen className="w-4 h-4 text-emerald-400" />;
       case 'course':
         return <GraduationCap className="w-4 h-4 text-indigo-400" />;
+      case 'launch':
+        return <Rocket className="w-4 h-4 text-rose-400" />;
+      case 'pricing':
+        return <DollarSign className="w-4 h-4 text-emerald-300" />;
+      case 'discount':
+      case 'coupon':
+        return <Ticket className="w-4 h-4 text-amber-400" />;
+      case 'booking':
+        return <Calendar className="w-4 h-4 text-sky-400" />;
+      case 'webinar':
+        return <Video className="w-4 h-4 text-purple-400" />;
+      case 'service':
+        return <Briefcase className="w-4 h-4 text-blue-400" />;
       case 'affiliate':
         return <ShoppingBag className="w-4 h-4 text-amber-400" />;
-      case 'coupon':
-        return <Ticket className="w-4 h-4 text-rose-400" />;
-      case 'whatsapp':
-        return <MessageCircle className="w-4 h-4 text-emerald-500" />;
-      case 'youtube':
-        return <Youtube className="w-4 h-4 text-red-500" />;
       default:
         return <FileText className="w-4 h-4 text-slate-400" />;
     }
   };
 
-  const filteredTemplates = templates.filter((t) =>
-    selectedCategory === 'all' ? true : t.category === selectedCategory
-  );
+  const categoryOptions = [
+    { id: 'all', label: 'All 9 Templates' },
+    { id: 'ebook', label: 'Free Ebook' },
+    { id: 'course', label: 'Course' },
+    { id: 'launch', label: 'Product Launch' },
+    { id: 'pricing', label: 'Price Inquiry' },
+    { id: 'discount', label: 'Discount' },
+    { id: 'booking', label: 'Appointment Booking' },
+    { id: 'webinar', label: 'Webinar' },
+    { id: 'service', label: 'Service Inquiry' },
+    { id: 'affiliate', label: 'Affiliate Offer' },
+  ];
+
+  const filteredTemplates = templates.filter((t) => {
+    if (selectedCategory === 'all') return true;
+    if (selectedCategory === 'ebook') return t.category === 'ebook' || t.category === 'pdf';
+    if (selectedCategory === 'discount') return t.category === 'discount' || t.category === 'coupon';
+    return t.category === selectedCategory;
+  });
 
   return (
     <div className="space-y-6">
@@ -118,10 +159,10 @@ export const TemplatesView: React.FC = () => {
         <div>
           <h1 className="text-lg font-bold text-slate-100 flex items-center gap-2">
             <FileText className="w-5 h-5 text-indigo-400" />
-            <span>Direct Message Templates</span>
+            <span>Campaign Templates (All 9 Types)</span>
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
-            Battle-tested direct message copy engineered to turn Instagram comments into clicks, leads, and sales.
+            Battle-tested direct message copy engineered to turn Instagram comments into clicks, leads, and sales. All templates are editable & duplicatable.
           </p>
         </div>
 
@@ -136,15 +177,7 @@ export const TemplatesView: React.FC = () => {
 
       {/* Category Filter Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {[
-          { id: 'all', label: 'All Templates' },
-          { id: 'pdf', label: 'PDF Lead Magnet' },
-          { id: 'course', label: 'Course Enrollment' },
-          { id: 'affiliate', label: 'Affiliate Links' },
-          { id: 'coupon', label: 'Promo Coupon' },
-          { id: 'whatsapp', label: 'WhatsApp VIP' },
-          { id: 'youtube', label: 'YouTube Video' },
-        ].map((c) => (
+        {categoryOptions.map((c) => (
           <button
             key={c.id}
             onClick={() => setSelectedCategory(c.id)}
@@ -169,15 +202,15 @@ export const TemplatesView: React.FC = () => {
             <div className="space-y-3">
               {/* Category & Usage */}
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-slate-950 border border-slate-800">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 shrink-0">
                     {getCategoryIcon(tpl.category)}
                   </div>
                   <span className="text-xs font-semibold text-slate-200 truncate">
                     {tpl.title}
                   </span>
                 </div>
-                <span className="text-[10px] font-mono tabular-nums text-slate-400">
+                <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
                   {tpl.usageCount} uses
                 </span>
               </div>
@@ -195,6 +228,13 @@ export const TemplatesView: React.FC = () => {
                 {tpl.message}
               </div>
 
+              {tpl.publicCommentReply && (
+                <div className="p-2 rounded bg-slate-950/60 border border-slate-800/80 text-[11px] text-slate-400">
+                  <span className="text-indigo-400 font-medium">Public Reply: </span>
+                  <span>"{tpl.publicCommentReply}"</span>
+                </div>
+              )}
+
               <p className="text-[11px] text-slate-400 leading-normal">
                 {tpl.description}
               </p>
@@ -205,21 +245,21 @@ export const TemplatesView: React.FC = () => {
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => openEditModal(tpl)}
-                  className="p-1.5 text-slate-400 hover:text-slate-200 transition-colors rounded hover:bg-slate-800"
+                  className="p-1.5 text-slate-400 hover:text-slate-200 transition-colors rounded hover:bg-slate-800 cursor-pointer"
                   title="Edit Template"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => duplicateTemplate(tpl.id)}
-                  className="p-1.5 text-slate-400 hover:text-slate-200 transition-colors rounded hover:bg-slate-800"
+                  className="p-1.5 text-slate-400 hover:text-slate-200 transition-colors rounded hover:bg-slate-800 cursor-pointer"
                   title="Duplicate Template"
                 >
                   <Copy className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => deleteTemplate(tpl.id)}
-                  className="p-1.5 text-slate-400 hover:text-rose-400 transition-colors rounded hover:bg-slate-800"
+                  className="p-1.5 text-slate-400 hover:text-rose-400 transition-colors rounded hover:bg-slate-800 cursor-pointer"
                   title="Delete Template"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -228,136 +268,134 @@ export const TemplatesView: React.FC = () => {
 
               <button
                 onClick={() => applyTemplateToNewCampaign(tpl)}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 rounded-lg border border-indigo-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
               >
-                <span>Use in Campaign</span>
-                <ArrowRight className="w-3 h-3" />
+                <span>Use Template</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Create / Edit Template Modal */}
+      {/* Edit/Create Template Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
             <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-100">
-                {editingTemplate ? 'Edit DM Template' : 'Create Reusable DM Template'}
-              </h3>
+              <h2 className="text-base font-semibold text-slate-100">
+                {editingTemplate ? 'Edit DM Template' : 'Create Custom Template'}
+              </h2>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-200 p-1"
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveModal} className="p-6 space-y-4">
               {formError && (
-                <div className="p-2.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4" />
+                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
                   <span>{formError}</span>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
                   Template Title
                 </label>
                 <input
                   type="text"
                   value={formTitle}
                   onChange={(e) => setFormTitle(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3.5 py-2 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
                     Category
                   </label>
                   <select
                     value={formCategory}
-                    onChange={(e) => setFormCategory(e.target.value as Template['category'])}
-                    className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none focus:border-indigo-500"
+                    onChange={(e) => setFormCategory(e.target.value as TemplateCategory)}
+                    className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-200 focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="pdf">PDF Lead Magnet</option>
+                    <option value="ebook">Free Ebook</option>
                     <option value="course">Course</option>
-                    <option value="affiliate">Affiliate</option>
-                    <option value="coupon">Coupon</option>
-                    <option value="whatsapp">WhatsApp</option>
-                    <option value="youtube">YouTube</option>
-                    <option value="custom">Custom</option>
+                    <option value="launch">Product Launch</option>
+                    <option value="pricing">Price Inquiry</option>
+                    <option value="discount">Discount</option>
+                    <option value="booking">Appointment Booking</option>
+                    <option value="webinar">Webinar</option>
+                    <option value="service">Service Inquiry</option>
+                    <option value="affiliate">Affiliate Offer</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Suggested Keyword
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Keyword Suggestion
                   </label>
                   <input
                     type="text"
                     value={formKeyword}
                     onChange={(e) => setFormKeyword(e.target.value)}
-                    placeholder="e.g. PDF, GUIDE"
-                    className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                    className="w-full px-3.5 py-2 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-100 font-mono uppercase focus:outline-none focus:border-indigo-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Direct Message Text
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Public Comment Reply Draft
+                </label>
+                <input
+                  type="text"
+                  value={formPublicReply}
+                  onChange={(e) => setFormPublicReply(e.target.value)}
+                  className="w-full px-3.5 py-2 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Private Direct Message Copy
                 </label>
                 <textarea
                   rows={4}
                   value={formMessage}
                   onChange={(e) => setFormMessage(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-indigo-500 font-sans"
+                  className="w-full px-3.5 py-2 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-indigo-500"
                 />
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  Tip: Use {'{{username}}'} and {'{{link}}'} tags.
-                </span>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Default Link
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Default Link URL
                 </label>
                 <input
                   type="url"
                   value={formLink}
                   onChange={(e) => setFormLink(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                  className="w-full px-3.5 py-2 text-xs rounded-lg bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Description / Advice
-                </label>
-                <input
-                  type="text"
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-800">
+              <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs text-slate-400 hover:text-slate-200"
+                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg cursor-pointer"
                 >
                   Save Template
                 </button>
