@@ -27,6 +27,7 @@ export const CampaignsView: React.FC = () => {
     duplicateCampaign,
     deleteCampaign,
     setActiveTab,
+    isDemoMode,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,7 +55,7 @@ export const CampaignsView: React.FC = () => {
               <Layers className="w-5 h-5 text-indigo-400" />
               <span>Automated Campaigns</span>
             </h1>
-            <StatusBadge status="Demo mode" />
+            <StatusBadge status={isDemoMode ? 'Demo mode' : 'Connected'} />
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
             Manage your Instagram post monitors, trigger keywords, and automated direct message sequences.

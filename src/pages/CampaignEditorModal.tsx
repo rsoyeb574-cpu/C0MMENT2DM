@@ -185,7 +185,7 @@ export const CampaignEditorModal: React.FC = () => {
   };
 
   // Final submission
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateCurrentStep(1) || !validateCurrentStep(3) || !validateCurrentStep(4)) {
       return;
@@ -198,7 +198,7 @@ export const CampaignEditorModal: React.FC = () => {
 
     const selectedPost = posts.find((p) => p.id === postId) || posts[0];
 
-    const success = saveCampaign({
+    const success = await saveCampaign({
       name: name.trim(),
       offer: offer.trim(),
       postId: selectedPost.id,

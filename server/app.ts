@@ -1,5 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
+import cookieParser from 'cookie-parser';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import {
   testConnection,
   getExistingTables,
@@ -8,23 +10,35 @@ import {
 } from './database/db.js';
 import { runMigration } from './database/migrate.js';
 import {
+  dbCreateUser,
+  dbGetUserByEmail,
+  dbGetUserById,
+  dbCreateSession,
+  dbGetSessionWithUser,
+  dbDeleteSession,
   dbGetCampaigns,
   dbSaveCampaign,
+  dbUpdateCampaignStatus,
   dbDeleteCampaign,
   dbGetTemplates,
   dbSaveTemplate,
+  dbDeleteTemplate,
   dbGetLeads,
   dbSaveLead,
   dbUpdateLeadStatus,
   dbDeleteLead,
+  dbGetCommentEvents,
+  dbRecordCommentEvent,
+  dbGetDmEvents,
+  dbRecordDmEvent,
+  dbGetLinkClicks,
   dbRecordLinkClick,
-  dbUpsertUser,
-  dbGetUserByEmail,
+  dbGetUsageRecords,
+  dbRecordUsage,
   dbUpsertInstagramAccount,
+  dbGetInstagramAccount,
 } from './database/queries.js';
-import {
-  getSetupStatus,
-} from './services/setupStatusService.js';
+import { getSetupStatus } from './services/setupStatusService.js';
 import {
   getBusinessLoginUrl,
   exchangeCodeForShortLivedToken,
@@ -37,6 +51,17 @@ import {
   handleWebhookEvent,
 } from './webhooks/instagramWebhook.js';
 
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string;
+    plan?: string;
+    created_at?: string;
+  };
+}
+
 const app = express();
 
 // Body parser with rawBody preservation for Meta HMAC webhook signature validation
@@ -48,6 +73,7 @@ app.use(
   })
 );
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // Security headers & CORS
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -56,6 +82,55 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.setHeader('X-XSS-Protection', '1; mode=block');
   next();
 });
+
+// Helper to sanitize error messages without exposing credentials
+function sanitizeError(err: any): string {
+  if (!err) return 'An unexpected error occurred';
+  const msg = err.message || String(err);
+  return msg.replace(/postgres(ql)?:\/\/[^@]+@/, 'postgresql://***@');
+}
+
+// --------------------------------------------------------------------------
+// Authentication Middleware (httpOnly cookie session)
+// --------------------------------------------------------------------------
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const token = req.cookies?.session_token || (req.headers['x-session-token'] as string);
+
+  if (!token) {
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required. Please log in.',
+    });
+    return;
+  }
+
+  try {
+    const sessionUser = await dbGetSessionWithUser(token);
+    if (!sessionUser) {
+      res.clearCookie('session_token', { path: '/' });
+      res.status(401).json({
+        success: false,
+        error: 'Session expired or invalid. Please log in again.',
+      });
+      return;
+    }
+
+    req.user = {
+      id: sessionUser.id,
+      name: sessionUser.name,
+      email: sessionUser.email,
+      avatar: sessionUser.avatar,
+      plan: sessionUser.plan,
+      created_at: sessionUser.created_at,
+    };
+    next();
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: sanitizeError(err),
+    });
+  }
+}
 
 // --------------------------------------------------------------------------
 // 1. Health & Database Status Endpoints
@@ -81,20 +156,17 @@ app.get('/api/health', async (_req: Request, res: Response) => {
       });
       return;
     } catch (err: any) {
-      const safeError = err?.message
-        ? err.message.replace(/postgres(ql)?:\/\/[^@]+@/, 'postgresql://***@')
-        : 'Database connection failed';
       res.status(503).json({
         status: 'error',
         database: 'error',
-        error: safeError,
+        error: sanitizeError(err),
         timestamp: new Date().toISOString(),
       });
       return;
     }
   }
 
-  // If DATABASE_URL is not configured (demo mode)
+  // If DATABASE_URL is not configured
   res.json({
     status: 'ok',
     database: 'demo_mode',
@@ -134,87 +206,239 @@ app.post('/api/db/migrate', async (_req: Request, res: Response) => {
 });
 
 // --------------------------------------------------------------------------
-// 2. Authentication (PostgreSQL + Demo Fallback)
+// 2. Authentication Endpoints (PostgreSQL + bcrypt + httpOnly session cookie)
 // --------------------------------------------------------------------------
-app.post('/api/auth/register', async (req: Request, res: Response) => {
+
+/**
+ * POST /api/auth/signup
+ * Registers a new user into PostgreSQL 'users' table, hashes password with bcrypt,
+ * creates a session in 'sessions' table, and sets an httpOnly session cookie.
+ */
+app.post('/api/auth/signup', async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
+
   if (!email || !password) {
-    res.status(400).json({ success: false, error: 'Email and password required' });
+    res.status(400).json({ success: false, error: 'Email and password are required.' });
     return;
   }
 
-  const existing = await dbGetUserByEmail(email);
-  if (existing) {
-    res.status(409).json({ success: false, error: 'User with this email already exists' });
+  if (password.length < 6) {
+    res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
     return;
   }
 
-  const id = `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
-
-  const created = await dbUpsertUser({
-    id,
-    name: name || email.split('@')[0],
-    email,
-    passwordHash,
-    plan: 'Pro',
-  });
-
-  res.json({
-    success: true,
-    user: {
-      id: created ? created.id : id,
-      name: created ? created.name : name,
-      email,
-      plan: 'Pro',
-      createdAt: new Date().toISOString(),
-    },
-  });
-});
-
-app.post('/api/auth/login', async (req: Request, res: Response) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    res.status(400).json({ success: false, error: 'Email and password required' });
-    return;
-  }
-
-  const user = await dbGetUserByEmail(email);
-  if (user) {
-    const hash = crypto.createHash('sha256').update(password).digest('hex');
-    if (user.password_hash === hash || user.password_hash === password) {
-      res.json({
-        success: true,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          avatar: user.avatar,
-          plan: user.plan || 'Pro',
-          createdAt: user.created_at,
-        },
-      });
-      return;
-    }
-  }
-
-  // Demo account fallback if DB not yet migrated or using demo credentials
-  if (email === 'demo@comment2dm.com' && password === 'demo123456') {
-    res.json({
-      success: true,
-      user: {
-        id: 'user_demo_01',
-        name: 'Creator Studio',
-        email: 'demo@comment2dm.com',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-        plan: 'Pro',
-        createdAt: '2026-03-01',
-      },
+  if (!isDatabaseConfigured()) {
+    res.status(503).json({
+      success: false,
+      error: 'DATABASE_URL is not configured on the server. Please set up DATABASE_URL to create live accounts.',
     });
     return;
   }
 
-  res.status(401).json({ success: false, error: 'Invalid email or password' });
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = await dbGetUserByEmail(cleanEmail);
+    if (existing) {
+      res.status(409).json({ success: false, error: 'An account with this email already exists. Please log in.' });
+      return;
+    }
+
+    const userId = `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userName = name?.trim() || cleanEmail.split('@')[0];
+
+    const newUser = await dbCreateUser({
+      id: userId,
+      name: userName,
+      email: cleanEmail,
+      passwordHash,
+      plan: 'Pro',
+    });
+
+    if (!newUser) {
+      throw new Error('Failed to create user record in PostgreSQL.');
+    }
+
+    // Create session in PostgreSQL 'sessions' table
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const sessionId = `sess_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+
+    await dbCreateSession({
+      id: sessionId,
+      userId: newUser.id,
+      sessionToken,
+      ipAddress: ipAddress.slice(0, 45),
+      userAgent: userAgent.slice(0, 500),
+      expiresAt,
+    });
+
+    // Set secure httpOnly cookie
+    res.cookie('session_token', sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        avatar: newUser.avatar,
+        plan: newUser.plan,
+        createdAt: newUser.created_at,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Signup Error]', err);
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+/**
+ * POST /api/auth/login
+ * Validates credentials against PostgreSQL, creates session record, sets cookie.
+ */
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    res.status(400).json({ success: false, error: 'Email and password are required.' });
+    return;
+  }
+
+  if (!isDatabaseConfigured()) {
+    res.status(503).json({
+      success: false,
+      error: 'DATABASE_URL is not configured on the server. Please set up DATABASE_URL to log in.',
+    });
+    return;
+  }
+
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await dbGetUserByEmail(cleanEmail);
+
+    if (!user) {
+      res.status(401).json({ success: false, error: 'Invalid email or password.' });
+      return;
+    }
+
+    // Verify password with bcrypt (with backward-compatible sha256 fallback)
+    let isMatch = false;
+    try {
+      isMatch = await bcrypt.compare(password, user.password_hash);
+    } catch {}
+
+    if (!isMatch) {
+      const sha256 = crypto.createHash('sha256').update(password).digest('hex');
+      isMatch = user.password_hash === sha256 || user.password_hash === password;
+    }
+
+    if (!isMatch) {
+      res.status(401).json({ success: false, error: 'Invalid email or password.' });
+      return;
+    }
+
+    // Create session in PostgreSQL 'sessions' table
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const sessionId = `sess_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+
+    await dbCreateSession({
+      id: sessionId,
+      userId: user.id,
+      sessionToken,
+      ipAddress: ipAddress.slice(0, 45),
+      userAgent: userAgent.slice(0, 500),
+      expiresAt,
+    });
+
+    // Set secure httpOnly cookie
+    res.cookie('session_token', sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+        plan: user.plan || 'Pro',
+        createdAt: user.created_at,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Login Error]', err);
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+/**
+ * POST /api/auth/logout
+ * Destroys session in PostgreSQL 'sessions' and clears cookie.
+ */
+app.post('/api/auth/logout', async (req: Request, res: Response) => {
+  const token = req.cookies?.session_token || (req.headers['x-session-token'] as string);
+  if (token) {
+    try {
+      await dbDeleteSession(token);
+    } catch (err) {
+      console.error('[Logout Error]', err);
+    }
+  }
+  res.clearCookie('session_token', { path: '/' });
+  res.json({ success: true, message: 'Signed out successfully.' });
+});
+
+/**
+ * GET /api/auth/me
+ * Returns current authenticated user profile from active session.
+ */
+app.get('/api/auth/me', async (req: AuthenticatedRequest, res: Response) => {
+  const token = req.cookies?.session_token || (req.headers['x-session-token'] as string);
+
+  if (!token) {
+    res.status(401).json({ success: false, user: null, error: 'Not authenticated' });
+    return;
+  }
+
+  try {
+    const sessionUser = await dbGetSessionWithUser(token);
+    if (!sessionUser) {
+      res.clearCookie('session_token', { path: '/' });
+      res.status(401).json({ success: false, user: null, error: 'Session expired' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: sessionUser.id,
+        name: sessionUser.name,
+        email: sessionUser.email,
+        avatar: sessionUser.avatar,
+        plan: sessionUser.plan,
+        createdAt: sessionUser.created_at,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
 });
 
 // --------------------------------------------------------------------------
@@ -291,74 +515,234 @@ app.get('/api/webhooks/instagram', handleWebhookChallenge);
 app.post('/api/webhooks/instagram', handleWebhookEvent);
 
 // --------------------------------------------------------------------------
-// 4. Campaigns CRUD (PostgreSQL)
+// 4. Campaigns CRUD (Protected by requireAuth, filtered strictly by session user)
 // --------------------------------------------------------------------------
-app.get('/api/campaigns', async (req: Request, res: Response) => {
-  const userId = req.query.userId as string | undefined;
-  const list = await dbGetCampaigns(userId);
-  res.json({ success: true, campaigns: list });
+app.get('/api/campaigns', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const list = await dbGetCampaigns(req.user!.id);
+    res.json({ success: true, campaigns: list });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
 });
 
-app.post('/api/campaigns', async (req: Request, res: Response) => {
-  const campaign = req.body;
-  const userId = req.query.userId as string | undefined;
-  const saved = await dbSaveCampaign(campaign, userId);
-  res.json({ success: true, campaign: saved || campaign });
+app.post('/api/campaigns', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const campaign = req.body;
+    const saved = await dbSaveCampaign(campaign, req.user!.id);
+    res.json({ success: true, campaign: saved });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
 });
 
-app.delete('/api/campaigns/:id', async (req: Request, res: Response) => {
-  const { id } = req.params;
-  await dbDeleteCampaign(id);
-  res.json({ success: true, id });
+app.patch('/api/campaigns/:id/status', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const updated = await dbUpdateCampaignStatus(id, status, req.user!.id);
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Campaign not found or not owned by user.' });
+      return;
+    }
+    res.json({ success: true, campaign: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
 });
 
-// --------------------------------------------------------------------------
-// 5. Message Templates CRUD (PostgreSQL)
-// --------------------------------------------------------------------------
-app.get('/api/templates', async (req: Request, res: Response) => {
-  const userId = req.query.userId as string | undefined;
-  const list = await dbGetTemplates(userId);
-  res.json({ success: true, templates: list });
-});
-
-app.post('/api/templates', async (req: Request, res: Response) => {
-  const template = req.body;
-  const userId = req.query.userId as string | undefined;
-  const saved = await dbSaveTemplate(template, userId);
-  res.json({ success: true, template: saved || template });
-});
-
-// --------------------------------------------------------------------------
-// 6. CRM Leads (PostgreSQL)
-// --------------------------------------------------------------------------
-app.get('/api/leads', async (req: Request, res: Response) => {
-  const userId = req.query.userId as string | undefined;
-  const leads = await dbGetLeads(userId);
-  res.json({ success: true, leads });
-});
-
-app.post('/api/leads', async (req: Request, res: Response) => {
-  const lead = req.body;
-  const userId = req.query.userId as string | undefined;
-  const saved = await dbSaveLead(lead, userId);
-  res.json({ success: true, lead: saved || lead });
-});
-
-app.patch('/api/leads/:id', async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { status, notes } = req.body;
-  await dbUpdateLeadStatus(id, status, notes);
-  res.json({ success: true, id, status, notes });
-});
-
-app.delete('/api/leads/:id', async (req: Request, res: Response) => {
-  const { id } = req.params;
-  await dbDeleteLead(id);
-  res.json({ success: true, id });
+app.delete('/api/campaigns/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const deleted = await dbDeleteCampaign(id, req.user!.id);
+    if (!deleted) {
+      res.status(404).json({ success: false, error: 'Campaign not found or unauthorized.' });
+      return;
+    }
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
 });
 
 // --------------------------------------------------------------------------
-// 7. Tracked Redirects (Logged in PostgreSQL link_clicks)
+// 5. Message Templates CRUD (Protected by requireAuth)
+// --------------------------------------------------------------------------
+app.get('/api/templates', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const list = await dbGetTemplates(req.user!.id);
+    res.json({ success: true, templates: list });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.post('/api/templates', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const template = req.body;
+    const saved = await dbSaveTemplate(template, req.user!.id);
+    res.json({ success: true, template: saved });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.delete('/api/templates/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const deleted = await dbDeleteTemplate(id, req.user!.id);
+    if (!deleted) {
+      res.status(404).json({ success: false, error: 'Template not found or unauthorized.' });
+      return;
+    }
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+// --------------------------------------------------------------------------
+// 6. CRM Leads (Protected by requireAuth)
+// --------------------------------------------------------------------------
+app.get('/api/leads', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const leads = await dbGetLeads(req.user!.id);
+    res.json({ success: true, leads });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.post('/api/leads', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const lead = req.body;
+    const saved = await dbSaveLead(lead, req.user!.id);
+    res.json({ success: true, lead: saved });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.patch('/api/leads/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+    const updated = await dbUpdateLeadStatus(id, status, notes, req.user!.id);
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Lead not found or unauthorized.' });
+      return;
+    }
+    res.json({ success: true, lead: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.delete('/api/leads/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const deleted = await dbDeleteLead(id, req.user!.id);
+    if (!deleted) {
+      res.status(404).json({ success: false, error: 'Lead not found or unauthorized.' });
+      return;
+    }
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+// --------------------------------------------------------------------------
+// 7. Comment Events, DM Events, Link Clicks, and Usage Records (Protected)
+// --------------------------------------------------------------------------
+app.get('/api/events/comments', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const events = await dbGetCommentEvents(req.user!.id);
+    res.json({ success: true, events });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.post('/api/events/comments', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const saved = await dbRecordCommentEvent({
+      ...req.body,
+      userId: req.user!.id,
+      commentTimestamp: req.body.commentTimestamp ? new Date(req.body.commentTimestamp) : new Date(),
+    });
+    res.json({ success: true, event: saved });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.get('/api/events/dms', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const events = await dbGetDmEvents(req.user!.id);
+    res.json({ success: true, events });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.post('/api/events/dms', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const saved = await dbRecordDmEvent({
+      ...req.body,
+      userId: req.user!.id,
+    });
+    res.json({ success: true, event: saved });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.get('/api/clicks', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clicks = await dbGetLinkClicks(req.user!.id);
+    res.json({ success: true, clicks });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.post('/api/clicks', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const saved = await dbRecordLinkClick({
+      ...req.body,
+      userId: req.user!.id,
+    });
+    res.json({ success: true, click: saved });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.get('/api/usage', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const period = (req.query.period as string) || undefined;
+    const records = await dbGetUsageRecords(req.user!.id, period);
+    res.json({ success: true, records });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+app.post('/api/usage', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const saved = await dbRecordUsage({
+      ...req.body,
+      userId: req.user!.id,
+    });
+    res.json({ success: true, usage: saved });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+
+// --------------------------------------------------------------------------
+// 8. Tracked Redirects (Logged in PostgreSQL link_clicks)
 // --------------------------------------------------------------------------
 async function handleTrackedRedirect(req: Request, res: Response) {
   const code = req.params.code;
@@ -391,7 +775,7 @@ app.get('/r/:code', handleTrackedRedirect);
 app.get('/api/redirect/:code', handleTrackedRedirect);
 
 // --------------------------------------------------------------------------
-// 8. AI Campaign & Follow-up Assistant
+// 9. AI Campaign & Follow-up Assistant
 // --------------------------------------------------------------------------
 app.post('/api/ai-suggest', async (req: Request, res: Response) => {
   const { offer, prompt, type } = req.body;

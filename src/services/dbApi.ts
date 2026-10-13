@@ -1,6 +1,7 @@
 /**
  * Client API for PostgreSQL Backend (Neon Serverless)
- * Safely communicates with backend routes without ever touching or exposing DATABASE_URL
+ * Securely uses session cookies (httpOnly) - never sends userId.
+ * Propagates real database error messages without exposing credentials.
  */
 
 export interface DbStatusResponse {
@@ -25,13 +26,35 @@ export interface MigrationApiResponse {
   durationMs: number;
 }
 
+async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(url, {
+    ...options,
+    credentials: 'include', // Ensures session_token cookie is always sent
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const errorMsg = data?.error || `Request failed with status ${res.status}`;
+    const err = new Error(errorMsg);
+    (err as any).status = res.status;
+    throw err;
+  }
+
+  return data as T;
+}
+
+// --------------------------------------------------------------------------
+// 1. Database Status & Migration
+// --------------------------------------------------------------------------
+
 export async function fetchDbStatus(): Promise<DbStatusResponse> {
   try {
-    const res = await fetch('/api/db/status');
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    return (await res.json()) as DbStatusResponse;
+    return await request<DbStatusResponse>('/api/db/status');
   } catch (err: any) {
     return {
       configured: false,
@@ -47,82 +70,165 @@ export async function fetchDbStatus(): Promise<DbStatusResponse> {
 }
 
 export async function triggerDbMigration(): Promise<MigrationApiResponse> {
-  try {
-    const res = await fetch('/api/db/migrate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    return (await res.json()) as MigrationApiResponse;
-  } catch (err: any) {
-    return {
-      success: false,
-      message: err.message || 'Migration request failed',
-      database: 'unknown',
-      host: 'unknown',
-      migratedTables: [],
-      missingTables: [],
-      durationMs: 0,
-    };
-  }
+  return await request<MigrationApiResponse>('/api/db/migrate', {
+    method: 'POST',
+  });
 }
 
-export async function apiSaveCampaign(campaign: any, userId?: string) {
-  try {
-    const res = await fetch(`/api/campaigns${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(campaign),
-    });
-    return await res.json();
-  } catch {
-    return null;
-  }
+// --------------------------------------------------------------------------
+// 2. Authentication (PostgreSQL Session Cookie)
+// --------------------------------------------------------------------------
+
+export async function apiSignup(name: string, email: string, password: string) {
+  return await request<{ success: boolean; user: any }>('/api/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ name, email, password }),
+  });
+}
+
+export async function apiLogin(email: string, password: string) {
+  return await request<{ success: boolean; user: any }>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function apiLogout() {
+  return await request<{ success: boolean }>('/api/auth/logout', {
+    method: 'POST',
+  });
+}
+
+export async function apiGetMe() {
+  return await request<{ success: boolean; user: any }>('/api/auth/me');
+}
+
+// --------------------------------------------------------------------------
+// 3. Campaigns (PostgreSQL)
+// --------------------------------------------------------------------------
+
+export async function apiGetCampaigns() {
+  return await request<{ success: boolean; campaigns: any[] }>('/api/campaigns');
+}
+
+export async function apiSaveCampaign(campaign: any) {
+  return await request<{ success: boolean; campaign: any }>('/api/campaigns', {
+    method: 'POST',
+    body: JSON.stringify(campaign),
+  });
+}
+
+export async function apiUpdateCampaignStatus(id: string, status: string) {
+  return await request<{ success: boolean; campaign: any }>(`/api/campaigns/${encodeURIComponent(id)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
 }
 
 export async function apiDeleteCampaign(id: string) {
-  try {
-    const res = await fetch(`/api/campaigns/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-    return await res.json();
-  } catch {
-    return null;
-  }
+  return await request<{ success: boolean; id: string }>(`/api/campaigns/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }
 
-export async function apiSaveLead(lead: any, userId?: string) {
-  try {
-    const res = await fetch(`/api/leads${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(lead),
-    });
-    return await res.json();
-  } catch {
-    return null;
-  }
+// --------------------------------------------------------------------------
+// 4. Message Templates (PostgreSQL)
+// --------------------------------------------------------------------------
+
+export async function apiGetTemplates() {
+  return await request<{ success: boolean; templates: any[] }>('/api/templates');
+}
+
+export async function apiSaveTemplate(template: any) {
+  return await request<{ success: boolean; template: any }>('/api/templates', {
+    method: 'POST',
+    body: JSON.stringify(template),
+  });
+}
+
+export async function apiDeleteTemplate(id: string) {
+  return await request<{ success: boolean; id: string }>(`/api/templates/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+// --------------------------------------------------------------------------
+// 5. CRM Leads (PostgreSQL)
+// --------------------------------------------------------------------------
+
+export async function apiGetLeads() {
+  return await request<{ success: boolean; leads: any[] }>('/api/leads');
+}
+
+export async function apiSaveLead(lead: any) {
+  return await request<{ success: boolean; lead: any }>('/api/leads', {
+    method: 'POST',
+    body: JSON.stringify(lead),
+  });
 }
 
 export async function apiUpdateLeadStatus(id: string, status: string, notes?: string) {
-  try {
-    const res = await fetch(`/api/leads/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, notes }),
-    });
-    return await res.json();
-  } catch {
-    return null;
-  }
+  return await request<{ success: boolean; lead: any }>(`/api/leads/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, notes }),
+  });
 }
 
 export async function apiDeleteLead(id: string) {
-  try {
-    const res = await fetch(`/api/leads/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-    return await res.json();
-  } catch {
-    return null;
-  }
+  return await request<{ success: boolean; id: string }>(`/api/leads/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+// --------------------------------------------------------------------------
+// 6. Comment Events & DM Events (PostgreSQL)
+// --------------------------------------------------------------------------
+
+export async function apiGetCommentEvents() {
+  return await request<{ success: boolean; events: any[] }>('/api/events/comments');
+}
+
+export async function apiRecordCommentEvent(event: any) {
+  return await request<{ success: boolean; event: any }>('/api/events/comments', {
+    method: 'POST',
+    body: JSON.stringify(event),
+  });
+}
+
+export async function apiGetDmEvents() {
+  return await request<{ success: boolean; events: any[] }>('/api/events/dms');
+}
+
+export async function apiRecordDmEvent(dm: any) {
+  return await request<{ success: boolean; event: any }>('/api/events/dms', {
+    method: 'POST',
+    body: JSON.stringify(dm),
+  });
+}
+
+// --------------------------------------------------------------------------
+// 7. Link Clicks & Usage Records (PostgreSQL)
+// --------------------------------------------------------------------------
+
+export async function apiGetLinkClicks() {
+  return await request<{ success: boolean; clicks: any[] }>('/api/clicks');
+}
+
+export async function apiRecordLinkClick(click: any) {
+  return await request<{ success: boolean; click: any }>('/api/clicks', {
+    method: 'POST',
+    body: JSON.stringify(click),
+  });
+}
+
+export async function apiGetUsageRecords(period?: string) {
+  const url = period ? `/api/usage?period=${encodeURIComponent(period)}` : '/api/usage';
+  return await request<{ success: boolean; records: any[] }>(url);
+}
+
+export async function apiRecordUsage(usage: any) {
+  return await request<{ success: boolean; usage: any }>('/api/usage', {
+    method: 'POST',
+    body: JSON.stringify(usage),
+  });
 }

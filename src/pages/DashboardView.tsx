@@ -30,12 +30,15 @@ export const DashboardView: React.FC = () => {
     totalClicks,
     activeCampaignsCount,
     setActiveTab,
+    navigateTo,
     openCreateCampaign,
     seedDemoActivity,
     recordLinkClick,
+    isDemoMode,
+    enterDemoMode,
+    exitDemoMode,
   } = useApp();
 
-  const [dataMode, setDataMode] = useState<'demo' | 'live'>('demo');
   const [timeframe, setTimeframe] = useState<'today' | '7d' | '30d'>('7d');
 
   // Conversion rate
@@ -62,12 +65,12 @@ export const DashboardView: React.FC = () => {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg font-bold text-slate-100">Automation Command Center</h1>
-            <StatusBadge status={dataMode === 'demo' ? 'Demo mode' : 'Setup required'} />
+            <StatusBadge status={isDemoMode ? 'Demo mode' : 'Connected'} />
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            {dataMode === 'demo'
-              ? 'Viewing Sandbox Simulator — In-browser testing with simulated comment events and DMs.'
-              : 'Production Live Mode — Connect your Meta Instagram Business account to receive real webhook events.'}
+            {isDemoMode
+              ? 'Viewing Sandbox Simulator — In-browser testing with sample comment events (no PostgreSQL writes).'
+              : 'Production Live Mode — Authenticated with PostgreSQL. All campaigns, leads, and events persist securely.'}
           </p>
         </div>
 
@@ -75,9 +78,9 @@ export const DashboardView: React.FC = () => {
           {/* Mode Switcher */}
           <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-lg border border-slate-800">
             <button
-              onClick={() => setDataMode('demo')}
+              onClick={enterDemoMode}
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                dataMode === 'demo'
+                isDemoMode
                   ? 'bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -85,18 +88,23 @@ export const DashboardView: React.FC = () => {
               Demo Sandbox
             </button>
             <button
-              onClick={() => setDataMode('live')}
+              onClick={() => {
+                if (isDemoMode) {
+                  exitDemoMode();
+                  navigateTo('signup');
+                }
+              }}
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                dataMode === 'live'
+                !isDemoMode
                   ? 'bg-indigo-600 text-white font-semibold'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Live Production
+              Live PostgreSQL
             </button>
           </div>
 
-          {dataMode === 'demo' ? (
+          {isDemoMode ? (
             <>
               <button
                 onClick={seedDemoActivity}
@@ -114,50 +122,28 @@ export const DashboardView: React.FC = () => {
               </button>
             </>
           ) : (
-            <button
-              onClick={() => setActiveTab('instagram')}
-              className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Instagram className="w-3.5 h-3.5" />
-              <span>Configure Instagram API</span>
-            </button>
+            <>
+              <button
+                onClick={() => openCreateCampaign()}
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>+ New Campaign</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('simulator')}
+                className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <FlaskConical className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Simulator</span>
+              </button>
+            </>
           )}
         </div>
       </div>
 
-      {dataMode === 'live' ? (
-        /* Live Mode Honest Unconfigured State */
-        <div className="p-8 rounded-xl bg-slate-900 border border-slate-800 text-center space-y-4">
-          <div className="w-12 h-12 rounded-xl bg-slate-800 mx-auto flex items-center justify-center text-slate-400">
-            <Instagram className="w-6 h-6" />
-          </div>
-          <div className="max-w-md mx-auto space-y-1">
-            <div className="flex items-center justify-center gap-2">
-              <h2 className="text-base font-bold text-slate-200">Live Analytics Not Configured</h2>
-              <StatusBadge status="Setup required" />
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              No live Instagram account is authorized. Live metrics are not fabricated. Once you add Meta credentials and authorize an account, live comments and delivery rates will appear here.
-            </p>
-          </div>
-          <div className="pt-2 flex justify-center gap-3">
-            <button
-              onClick={() => setDataMode('demo')}
-              className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
-            >
-              Switch back to Demo Sandbox
-            </button>
-            <button
-              onClick={() => setActiveTab('instagram')}
-              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm transition-all cursor-pointer"
-            >
-              Setup Instagram Integration
-            </button>
-          </div>
-        </div>
-      ) : (
-        /* Demo Mode KPIs and Charts */
-        <>
+      {/* Main KPI & Content Area */}
+      <>
           {/* Quick Hub Navigation Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-1">
             <div
@@ -527,7 +513,6 @@ export const DashboardView: React.FC = () => {
             </div>
           </div>
         </>
-      )}
     </div>
   );
 };

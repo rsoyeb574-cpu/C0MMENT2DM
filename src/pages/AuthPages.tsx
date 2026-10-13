@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { login, setActiveTab, navigateTo, authRedirectNotice, clearAuthNotice } = useApp();
+  const { login, enterDemoMode, setActiveTab, navigateTo, authRedirectNotice, clearAuthNotice } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -54,21 +54,11 @@ export const LoginPage: React.FC = () => {
   };
 
   const handleFillDemo = () => {
-    setEmail('demo@comment2dm.com');
-    setPassword('demo123456');
-    setError(null);
+    enterDemoMode();
   };
 
-  const handleOneClickDemo = async () => {
-    setEmail('demo@comment2dm.com');
-    setPassword('demo123456');
-    setError(null);
-    setLoading(true);
-    const res = await login('demo@comment2dm.com', 'demo123456');
-    setLoading(false);
-    if (res.success) {
-      setSuccess(true);
-    }
+  const handleOneClickDemo = () => {
+    enterDemoMode();
   };
 
   return (

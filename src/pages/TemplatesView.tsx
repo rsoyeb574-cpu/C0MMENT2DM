@@ -79,7 +79,7 @@ export const TemplatesView: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSaveModal = (e: React.FormEvent) => {
+  const handleSaveModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim()) {
       setFormError('Title is required');
@@ -90,7 +90,7 @@ export const TemplatesView: React.FC = () => {
       return;
     }
 
-    saveTemplate({
+    await saveTemplate({
       id: editingTemplate?.id,
       title: formTitle.trim(),
       category: formCategory,

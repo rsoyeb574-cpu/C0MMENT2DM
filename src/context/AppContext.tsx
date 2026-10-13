@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import {
   Campaign,
   Template,
+  TemplateCategory,
   InstagramPost,
   ActivityLog,
   ActiveTab,
@@ -29,27 +30,33 @@ import {
 } from '../data/mockData';
 
 import {
+  apiSignup,
+  apiLogin,
+  apiLogout,
+  apiGetMe,
+  apiGetCampaigns,
   apiSaveCampaign,
+  apiUpdateCampaignStatus,
   apiDeleteCampaign,
+  apiGetTemplates,
+  apiSaveTemplate,
+  apiDeleteTemplate,
+  apiGetLeads,
   apiSaveLead,
   apiUpdateLeadStatus,
   apiDeleteLead,
+  apiGetCommentEvents,
+  apiRecordCommentEvent,
+  apiGetDmEvents,
+  apiRecordDmEvent,
+  apiGetLinkClicks,
+  apiRecordLinkClick,
 } from '../services/dbApi';
 
 export interface ToastItem {
   id: string;
   message: string;
   type: 'success' | 'info' | 'error';
-}
-
-interface StoredAccount {
-  id: string;
-  name: string;
-  email: string;
-  passwordHash: string;
-  avatar?: string;
-  createdAt: string;
-  plan: 'Free' | 'Pro' | 'Business';
 }
 
 interface AppContextType {
@@ -69,10 +76,10 @@ interface AppContextType {
   activityLogs: ActivityLog[];
   errorLogs: InstagramErrorLog[];
   leads: Lead[];
-  addLead: (lead: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateLeadStatus: (leadId: string, status: LeadStatus) => void;
-  updateLeadNotes: (leadId: string, notes: string) => void;
-  deleteLead: (leadId: string) => void;
+  addLead: (lead: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateLeadStatus: (leadId: string, status: LeadStatus) => Promise<void>;
+  updateLeadNotes: (leadId: string, notes: string) => Promise<void>;
+  deleteLead: (leadId: string) => Promise<void>;
   addErrorLog: (log: Omit<InstagramErrorLog, 'id' | 'timestamp'>) => void;
   clearErrorLogs: () => void;
   isInstagramConnected: boolean;
@@ -83,12 +90,12 @@ interface AppContextType {
   openCreateCampaign: (initial?: Partial<Campaign>) => void;
   openEditCampaign: (campaign: Campaign) => void;
   closeEditor: () => void;
-  saveCampaign: (campaignData: Partial<Campaign>) => boolean;
-  toggleCampaignStatus: (id: string) => void;
-  duplicateCampaign: (id: string) => void;
-  deleteCampaign: (id: string) => void;
-  saveTemplate: (templateData: Partial<Template>) => void;
-  deleteTemplate: (id: string) => void;
+  saveCampaign: (campaignData: Partial<Campaign>) => Promise<boolean>;
+  toggleCampaignStatus: (id: string) => Promise<void>;
+  duplicateCampaign: (id: string) => Promise<void>;
+  deleteCampaign: (id: string) => Promise<void>;
+  saveTemplate: (templateData: Partial<Template>) => Promise<void>;
+  deleteTemplate: (id: string) => Promise<void>;
   duplicateTemplate: (id: string) => void;
   applyTemplateToNewCampaign: (template: Template) => void;
   runSimulator: (username: string, commentText: string, specificCampaignId?: string) => Promise<SimulatorExecutionResult>;
@@ -114,33 +121,16 @@ interface AppContextType {
   totalDMsSent: number;
   totalClicks: number;
   activeCampaignsCount: number;
+  // Demo Mode & Live DB state
+  isDemoMode: boolean;
+  enterDemoMode: () => void;
+  exitDemoMode: () => void;
+  dbError: string | null;
+  clearDbError: () => void;
+  refreshData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
-
-const STORAGE_KEYS = {
-  USERS_DB: 'comment2dm_users_db_v2',
-  AUTH_USER: 'comment2dm_auth_user_v2',
-  CAMPAIGNS: 'comment2dm_campaigns_v2',
-  TEMPLATES: 'comment2dm_templates_v2',
-  LOGS: 'comment2dm_logs_v2',
-  ERRORS: 'comment2dm_errors_v2',
-  LEADS: 'comment2dm_leads_v2',
-  TRACKED_CLICKS: 'comment2dm_tracked_clicks_v2',
-  FOLLOWUP_TEMPLATES: 'comment2dm_fup_templates_v2',
-  OUTBOUND_FOLLOWUPS: 'comment2dm_fup_outbound_v2',
-  IG_CONNECTED: 'comment2dm_ig_connected_v2',
-};
-
-const DEFAULT_DEMO_ACCOUNT: StoredAccount = {
-  id: 'user_demo_01',
-  name: 'Creator Studio',
-  email: 'demo@comment2dm.com',
-  passwordHash: 'demo123456',
-  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-  createdAt: '2026-03-01',
-  plan: 'Pro',
-};
 
 const PROTECTED_TABS: ActiveTab[] = [
   'dashboard',
@@ -192,507 +182,406 @@ function getTabFromPath(path: string): ActiveTab {
   }
 }
 
+// Helpers to map PostgreSQL columns to TypeScript models
+function mapCampaignFromDb(c: any): Campaign {
+  return {
+    id: c.id,
+    name: c.name,
+    postId: c.post_id || '',
+    postThumbnail: c.post_thumbnail,
+    postCaption: c.post_caption,
+    keyword: c.keyword,
+    matchType: c.match_type || 'contains',
+    caseInsensitive: c.case_insensitive ?? true,
+    sendOncePerUser: c.send_once_per_user ?? true,
+    message: c.message,
+    link: c.link,
+    status: c.status || 'active',
+    createdAt: c.created_at ? new Date(c.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+    commentsCount: Number(c.comments_count || 0),
+    dmsSentCount: Number(c.dms_sent_count || 0),
+    clicksCount: Number(c.clicks_count || 0),
+    offer: c.offer || '',
+    publicCommentReply: c.public_comment_reply || '',
+    callToAction: c.call_to_action || '',
+    qualificationQuestions: Array.isArray(c.qualification_questions)
+      ? c.qualification_questions
+      : typeof c.qualification_questions === 'string'
+      ? JSON.parse(c.qualification_questions)
+      : [],
+    setupVerified: c.setup_verified ?? true,
+  };
+}
+
+function mapTemplateFromDb(t: any): Template {
+  return {
+    id: t.id,
+    title: t.title,
+    category: (t.category as TemplateCategory) || 'ebook',
+    keywordSuggestion: t.keyword_suggestion,
+    offer: t.offer || '',
+    message: t.message,
+    publicCommentReply: t.public_comment_reply || '',
+    callToAction: t.call_to_action || '',
+    defaultLink: t.default_link,
+    description: t.description || '',
+    usageCount: Number(t.usage_count || 0),
+    qualificationQuestions: Array.isArray(t.qualification_questions)
+      ? t.qualification_questions
+      : typeof t.qualification_questions === 'string'
+      ? JSON.parse(t.qualification_questions)
+      : [],
+  };
+}
+
+function mapLeadFromDb(l: any): Lead {
+  return {
+    id: l.id,
+    username: l.username,
+    userAvatar: l.user_avatar,
+    comment: l.comment,
+    commentId: l.comment_id || 'cmt_' + Date.now(),
+    commentTime: l.comment_time ? new Date(l.comment_time).toLocaleTimeString() : 'Just now',
+    campaignId: l.campaign_id,
+    campaignName: l.campaign_name || '',
+    matchedKeyword: l.matched_keyword || '',
+    dmSent: l.dm_sent || '',
+    link: l.link || '',
+    status: (l.status as LeadStatus) || 'New',
+    notes: l.notes || '',
+    source: l.source || 'Instagram Comment',
+    postThumbnail: l.post_thumbnail,
+    qualificationAnswers: Array.isArray(l.qualification_answers)
+      ? l.qualification_answers
+      : typeof l.qualification_answers === 'string'
+      ? JSON.parse(l.qualification_answers)
+      : [],
+    timeline: Array.isArray(l.timeline)
+      ? l.timeline
+      : typeof l.timeline === 'string'
+      ? JSON.parse(l.timeline)
+      : [],
+    createdAt: l.created_at || new Date().toISOString(),
+    updatedAt: l.updated_at || new Date().toISOString(),
+  };
+}
+
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // 1. Initial Users Database
-  const [usersDb, setUsersDb] = useState<StoredAccount[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.USERS_DB);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return [DEFAULT_DEMO_ACCOUNT];
-  });
-
-  // 2. Initial Auth User
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch {}
-    return null;
-  });
-
+  // 1. Auth & Session state (verified against server)
+  const [user, setUser] = useState<User | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [authRedirectNotice, setAuthRedirectNotice] = useState<string | null>(null);
 
-  // 3. Tab & Routing state
+  // 2. Active Tab & Navigation
   const [activeTab, setActiveTabState] = useState<ActiveTab>(() => {
     if (typeof window !== 'undefined') {
-      const initialTab = getTabFromPath(window.location.pathname);
-      if (PROTECTED_TABS.includes(initialTab)) {
-        try {
-          const authUser = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
-          if (!authUser) {
-            return 'login';
-          }
-        } catch {}
-      }
-      return initialTab;
+      return getTabFromPath(window.location.pathname);
     }
     return 'landing';
   });
 
+  // 3. Application Data Collections
   const [posts] = useState<InstagramPost[]>(INITIAL_POSTS);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [errorLogs, setErrorLogs] = useState<InstagramErrorLog[]>([]);
+  const [trackedClicks, setTrackedClicks] = useState<TrackedClickEvent[]>([]);
+  const [followUpTemplates, setFollowUpTemplates] = useState<FollowUpTemplate[]>(INITIAL_FOLLOWUP_TEMPLATES);
+  const [outboundFollowUps, setOutboundFollowUps] = useState<OutboundFollowUpRecord[]>([]);
 
-  // User-isolated state loaders
-  const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
-    try {
-      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
-      const parsedUser = authUser ? JSON.parse(authUser) : null;
-      const userId = parsedUser?.id || 'demo';
-      const saved = localStorage.getItem(`${STORAGE_KEYS.CAMPAIGNS}_${userId}`);
-      return saved ? JSON.parse(saved) : (userId === 'user_demo_01' || userId === 'demo' ? INITIAL_CAMPAIGNS : []);
-    } catch {
-      return INITIAL_CAMPAIGNS;
-    }
-  });
+  // 4. Instagram Connection state
+  const [isInstagramConnected, setIsInstagramConnected] = useState<boolean>(false);
 
-  const [templates, setTemplates] = useState<Template[]>(() => {
-    try {
-      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
-      const parsedUser = authUser ? JSON.parse(authUser) : null;
-      const userId = parsedUser?.id || 'demo';
-      const saved = localStorage.getItem(`${STORAGE_KEYS.TEMPLATES}_${userId}`);
-      return saved ? JSON.parse(saved) : INITIAL_TEMPLATES;
-    } catch {
-      return INITIAL_TEMPLATES;
-    }
-  });
-
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
-    try {
-      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
-      const parsedUser = authUser ? JSON.parse(authUser) : null;
-      const userId = parsedUser?.id || 'demo';
-      const saved = localStorage.getItem(`${STORAGE_KEYS.LOGS}_${userId}`);
-      return saved ? JSON.parse(saved) : (userId === 'user_demo_01' || userId === 'demo' ? INITIAL_ACTIVITY_LOGS : []);
-    } catch {
-      return INITIAL_ACTIVITY_LOGS;
-    }
-  });
-
-  const [errorLogs, setErrorLogs] = useState<InstagramErrorLog[]>(() => {
-    try {
-      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
-      const parsedUser = authUser ? JSON.parse(authUser) : null;
-      const userId = parsedUser?.id || 'demo';
-      const saved = localStorage.getItem(`${STORAGE_KEYS.ERRORS}_${userId}`);
-      return saved ? JSON.parse(saved) : INITIAL_ERROR_LOGS;
-    } catch {
-      return INITIAL_ERROR_LOGS;
-    }
-  });
-
-  const [leads, setLeads] = useState<Lead[]>(() => {
-    try {
-      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
-      const parsedUser = authUser ? JSON.parse(authUser) : null;
-      const userId = parsedUser?.id || 'demo';
-      const saved = localStorage.getItem(`${STORAGE_KEYS.LEADS}_${userId}`);
-      return saved ? JSON.parse(saved) : (userId === 'user_demo_01' || userId === 'demo' ? INITIAL_LEADS : []);
-    } catch {
-      return INITIAL_LEADS;
-    }
-  });
-
-  const [trackedClicks, setTrackedClicks] = useState<TrackedClickEvent[]>(() => {
-    try {
-      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
-      const parsedUser = authUser ? JSON.parse(authUser) : null;
-      const userId = parsedUser?.id || 'demo';
-      const saved = localStorage.getItem(`${STORAGE_KEYS.TRACKED_CLICKS}_${userId}`);
-      return saved ? JSON.parse(saved) : (userId === 'user_demo_01' || userId === 'demo' ? INITIAL_TRACKED_CLICKS : []);
-    } catch {
-      return INITIAL_TRACKED_CLICKS;
-    }
-  });
-
-  const [followUpTemplates, setFollowUpTemplates] = useState<FollowUpTemplate[]>(() => {
-    try {
-      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
-      const parsedUser = authUser ? JSON.parse(authUser) : null;
-      const userId = parsedUser?.id || 'demo';
-      const saved = localStorage.getItem(`${STORAGE_KEYS.FOLLOWUP_TEMPLATES}_${userId}`);
-      return saved ? JSON.parse(saved) : INITIAL_FOLLOWUP_TEMPLATES;
-    } catch {
-      return INITIAL_FOLLOWUP_TEMPLATES;
-    }
-  });
-
-  const [outboundFollowUps, setOutboundFollowUps] = useState<OutboundFollowUpRecord[]>(() => {
-    try {
-      const authUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH_USER) : null;
-      const parsedUser = authUser ? JSON.parse(authUser) : null;
-      const userId = parsedUser?.id || 'demo';
-      const saved = localStorage.getItem(`${STORAGE_KEYS.OUTBOUND_FOLLOWUPS}_${userId}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [isInstagramConnected, setIsInstagramConnected] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.IG_CONNECTED);
-      return saved ? JSON.parse(saved) : false;
-    } catch {
-      return false;
-    }
-  });
-
+  // 5. Editor & UI states
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  // Track replied comment IDs in session to enforce Meta's exactly-once rule
-  const [repliedComments] = useState<Set<string>>(() => new Set(['cmt_1001', 'cmt_1002', 'cmt_1003', 'cmt_1004', 'cmt_1005']));
+  // Track replied comments in memory to prevent duplicate simulator runs
+  const [repliedComments] = useState<Set<string>>(() => new Set());
 
-  // Load user-isolated workspace when active user changes
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      const savedCamps = localStorage.getItem(`${STORAGE_KEYS.CAMPAIGNS}_${userId}`);
-      if (savedCamps) {
-        setCampaigns(JSON.parse(savedCamps));
-      } else {
-        setCampaigns(userId === 'user_demo_01' || userId === 'demo' ? INITIAL_CAMPAIGNS : []);
-      }
-    } catch {}
-
-    try {
-      const savedTpls = localStorage.getItem(`${STORAGE_KEYS.TEMPLATES}_${userId}`);
-      if (savedTpls) {
-        setTemplates(JSON.parse(savedTpls));
-      } else {
-        setTemplates(INITIAL_TEMPLATES);
-      }
-    } catch {}
-
-    try {
-      const savedLogs = localStorage.getItem(`${STORAGE_KEYS.LOGS}_${userId}`);
-      if (savedLogs) {
-        setActivityLogs(JSON.parse(savedLogs));
-      } else {
-        setActivityLogs(userId === 'user_demo_01' || userId === 'demo' ? INITIAL_ACTIVITY_LOGS : []);
-      }
-    } catch {}
-
-    try {
-      const savedErrors = localStorage.getItem(`${STORAGE_KEYS.ERRORS}_${userId}`);
-      if (savedErrors) {
-        setErrorLogs(JSON.parse(savedErrors));
-      } else {
-        setErrorLogs(INITIAL_ERROR_LOGS);
-      }
-    } catch {}
-
-    try {
-      const savedLeads = localStorage.getItem(`${STORAGE_KEYS.LEADS}_${userId}`);
-      if (savedLeads) {
-        setLeads(JSON.parse(savedLeads));
-      } else {
-        setLeads(userId === 'user_demo_01' || userId === 'demo' ? INITIAL_LEADS : []);
-      }
-    } catch {}
-
-    try {
-      const savedClicks = localStorage.getItem(`${STORAGE_KEYS.TRACKED_CLICKS}_${userId}`);
-      if (savedClicks) {
-        setTrackedClicks(JSON.parse(savedClicks));
-      } else {
-        setTrackedClicks(userId === 'user_demo_01' || userId === 'demo' ? INITIAL_TRACKED_CLICKS : []);
-      }
-    } catch {}
-
-    try {
-      const savedFupTpls = localStorage.getItem(`${STORAGE_KEYS.FOLLOWUP_TEMPLATES}_${userId}`);
-      if (savedFupTpls) {
-        setFollowUpTemplates(JSON.parse(savedFupTpls));
-      } else {
-        setFollowUpTemplates(INITIAL_FOLLOWUP_TEMPLATES);
-      }
-    } catch {}
-
-    try {
-      const savedOutbound = localStorage.getItem(`${STORAGE_KEYS.OUTBOUND_FOLLOWUPS}_${userId}`);
-      if (savedOutbound) {
-        setOutboundFollowUps(JSON.parse(savedOutbound));
-      } else {
-        setOutboundFollowUps([]);
-      }
-    } catch {}
-
-    // Hydrate from PostgreSQL database when serverless connection is active
-    fetch(`/api/campaigns${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.campaigns && Array.isArray(data.campaigns) && data.campaigns.length > 0) {
-          const mapped = data.campaigns.map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            postId: c.post_id || '',
-            postThumbnail: c.post_thumbnail,
-            postCaption: c.post_caption,
-            keyword: c.keyword,
-            matchType: c.match_type || 'contains',
-            caseInsensitive: c.case_insensitive ?? true,
-            sendOncePerUser: c.send_once_per_user ?? true,
-            message: c.message,
-            link: c.link,
-            status: c.status || 'active',
-            createdAt: c.created_at ? new Date(c.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-            commentsCount: c.comments_count || 0,
-            dmsSentCount: c.dms_sent_count || 0,
-            clicksCount: c.clicks_count || 0,
-            offer: c.offer || '',
-            publicCommentReply: c.public_comment_reply || '',
-            callToAction: c.call_to_action || '',
-            qualificationQuestions: c.qualification_questions || [],
-            setupVerified: c.setup_verified ?? true,
-          }));
-          setCampaigns(mapped);
-        }
-      })
-      .catch(() => {});
-
-    fetch(`/api/leads${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.leads && Array.isArray(data.leads) && data.leads.length > 0) {
-          const mappedLeads = data.leads.map((l: any) => ({
-            id: l.id,
-            username: l.username,
-            userAvatar: l.user_avatar,
-            comment: l.comment,
-            commentId: l.comment_id,
-            commentTime: l.comment_time || new Date().toISOString(),
-            campaignId: l.campaign_id,
-            campaignName: l.campaign_name,
-            matchedKeyword: l.matched_keyword,
-            dmSent: l.dm_sent,
-            link: l.link,
-            status: l.status || 'New',
-            notes: l.notes || '',
-            source: l.source || 'Instagram Comment',
-            postThumbnail: l.post_thumbnail,
-            qualificationAnswers: l.qualification_answers || [],
-            timeline: l.timeline || [],
-            createdAt: l.created_at || new Date().toISOString(),
-            updatedAt: l.updated_at || new Date().toISOString(),
-          }));
-          setLeads(mappedLeads);
-        }
-      })
-      .catch(() => {});
-  }, [user?.id]);
-
-  // Persist Users DB & Auth User
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.USERS_DB, JSON.stringify(usersDb));
-    } catch {}
-  }, [usersDb]);
-
-  useEffect(() => {
-    try {
-      if (user) {
-        localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(user));
-      } else {
-        localStorage.removeItem(STORAGE_KEYS.AUTH_USER);
-      }
-    } catch {}
-  }, [user]);
-
-  // Persist user-isolated state
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      localStorage.setItem(`${STORAGE_KEYS.CAMPAIGNS}_${userId}`, JSON.stringify(campaigns));
-    } catch {}
-  }, [campaigns, user?.id]);
-
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      localStorage.setItem(`${STORAGE_KEYS.TEMPLATES}_${userId}`, JSON.stringify(templates));
-    } catch {}
-  }, [templates, user?.id]);
-
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      localStorage.setItem(`${STORAGE_KEYS.LOGS}_${userId}`, JSON.stringify(activityLogs));
-    } catch {}
-  }, [activityLogs, user?.id]);
-
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      localStorage.setItem(`${STORAGE_KEYS.ERRORS}_${userId}`, JSON.stringify(errorLogs));
-    } catch {}
-  }, [errorLogs, user?.id]);
-
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      localStorage.setItem(`${STORAGE_KEYS.LEADS}_${userId}`, JSON.stringify(leads));
-    } catch {}
-  }, [leads, user?.id]);
-
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      localStorage.setItem(`${STORAGE_KEYS.TRACKED_CLICKS}_${userId}`, JSON.stringify(trackedClicks));
-    } catch {}
-  }, [trackedClicks, user?.id]);
-
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      localStorage.setItem(`${STORAGE_KEYS.FOLLOWUP_TEMPLATES}_${userId}`, JSON.stringify(followUpTemplates));
-    } catch {}
-  }, [followUpTemplates, user?.id]);
-
-  useEffect(() => {
-    const userId = user?.id || 'demo';
-    try {
-      localStorage.setItem(`${STORAGE_KEYS.OUTBOUND_FOLLOWUPS}_${userId}`, JSON.stringify(outboundFollowUps));
-    } catch {}
-  }, [outboundFollowUps, user?.id]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.IG_CONNECTED, JSON.stringify(isInstagramConnected));
-    } catch {}
-  }, [isInstagramConnected]);
-
-  const instagramStatus: AppStatus = isInstagramConnected ? 'Connected' : 'Setup required';
-
-  const addToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+  const addToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
     const id = 'toast_' + Math.random().toString(36).slice(2, 9);
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4500);
-  };
+  }, []);
 
-  const removeToast = (id: string) => {
+  const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
+  }, []);
 
-  const addErrorLog = (logData: Omit<InstagramErrorLog, 'id' | 'timestamp'>) => {
-    const newLog: InstagramErrorLog = {
-      ...logData,
-      id: 'err_' + Date.now(),
-      timestamp: 'Just now',
-    };
-    setErrorLogs((prev) => [newLog, ...prev]);
-  };
+  const clearDbError = useCallback(() => {
+    setDbError(null);
+  }, []);
 
-  const clearErrorLogs = () => {
-    setErrorLogs([]);
-    addToast('Instagram error logs cleared.', 'info');
+  // --------------------------------------------------------------------------
+  // Check active session on initial application load
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    apiGetMe()
+      .then((res) => {
+        if (res?.success && res.user) {
+          setUser({
+            id: res.user.id,
+            name: res.user.name,
+            email: res.user.email,
+            avatar: res.user.avatar,
+            createdAt: res.user.createdAt || res.user.created_at,
+            plan: res.user.plan || 'Pro',
+          });
+          setIsDemoMode(false);
+        }
+      })
+      .catch(() => {
+        // No active session cookie
+        setUser(null);
+      });
+  }, []);
+
+  // --------------------------------------------------------------------------
+  // Load data from PostgreSQL for authenticated user
+  // --------------------------------------------------------------------------
+  const refreshData = useCallback(async () => {
+    if (isDemoMode) {
+      setCampaigns(INITIAL_CAMPAIGNS);
+      setTemplates(INITIAL_TEMPLATES);
+      setLeads(INITIAL_LEADS);
+      setActivityLogs(INITIAL_ACTIVITY_LOGS);
+      setTrackedClicks(INITIAL_TRACKED_CLICKS);
+      return;
+    }
+
+    if (!user) {
+      setCampaigns([]);
+      setLeads([]);
+      setActivityLogs([]);
+      setTrackedClicks([]);
+      return;
+    }
+
+    try {
+      setDbError(null);
+      const [campsRes, tplsRes, leadsRes, cmtsRes, dmsRes, clicksRes] = await Promise.all([
+        apiGetCampaigns(),
+        apiGetTemplates().catch(() => ({ success: true, templates: [] })),
+        apiGetLeads().catch(() => ({ success: true, leads: [] })),
+        apiGetCommentEvents().catch(() => ({ success: true, events: [] })),
+        apiGetDmEvents().catch(() => ({ success: true, events: [] })),
+        apiGetLinkClicks().catch(() => ({ success: true, clicks: [] })),
+      ]);
+
+      if (campsRes?.campaigns) {
+        setCampaigns(campsRes.campaigns.map(mapCampaignFromDb));
+      }
+      if (tplsRes?.templates && tplsRes.templates.length > 0) {
+        setTemplates(tplsRes.templates.map(mapTemplateFromDb));
+      } else {
+        setTemplates(INITIAL_TEMPLATES);
+      }
+      if (leadsRes?.leads) {
+        setLeads(leadsRes.leads.map(mapLeadFromDb));
+      }
+
+      // Map combined DM and Comment events into ActivityLogs
+      if (dmsRes?.events && dmsRes.events.length > 0) {
+        const mappedLogs: ActivityLog[] = dmsRes.events.map((d: any) => ({
+          id: d.id,
+          timestamp: d.sent_at ? new Date(d.sent_at).toLocaleTimeString() : 'Just now',
+          username: d.recipient_username,
+          comment: `Private reply dispatched for comment ${d.comment_id}`,
+          campaignId: d.campaign_id || '',
+          campaignName: 'Campaign',
+          matchedKeyword: 'AUTO',
+          dmMessage: d.message_text,
+          link: '',
+          status: (d.status as AppStatus) || 'Sent successfully',
+          clicked: false,
+          responseTimeMs: d.response_time_ms || 850,
+        }));
+        setActivityLogs(mappedLogs);
+      } else {
+        setActivityLogs([]);
+      }
+
+      if (clicksRes?.clicks) {
+        const mappedClicks: TrackedClickEvent[] = clicksRes.clicks.map((clk: any) => ({
+          id: clk.id,
+          timestamp: clk.clicked_at ? new Date(clk.clicked_at).toISOString() : new Date().toISOString(),
+          rawTime: clk.clicked_at ? new Date(clk.clicked_at).getTime() : Date.now(),
+          campaignId: clk.campaign_id || '',
+          campaignName: 'Campaign Link',
+          leadId: clk.lead_id,
+          username: clk.username || 'follower',
+          destinationUrl: clk.destination_url,
+          referrer: clk.referrer || 'Instagram DM',
+          userAgent: clk.user_agent || 'Unknown',
+        }));
+        setTrackedClicks(mappedClicks);
+      }
+    } catch (err: any) {
+      console.error('[Refresh Data Error]', err);
+      const msg = err.message || 'Failed to load PostgreSQL data';
+      setDbError(msg);
+      addToast(`PostgreSQL Error: ${msg}`, 'error');
+    }
+  }, [user, isDemoMode, addToast]);
+
+  // Trigger refresh whenever auth status changes
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
+
+  // Protected route redirects
+  useEffect(() => {
+    if (PROTECTED_TABS.includes(activeTab) && !user && !isDemoMode) {
+      setAuthRedirectNotice(`Please sign in or create an account to access ${activeTab}.`);
+      setActiveTabState('login');
+      if (typeof window !== 'undefined') {
+        window.history.pushState(null, '', '/login');
+      }
+    }
+  }, [activeTab, user, isDemoMode]);
+
+  const navigateTo = (tab: ActiveTab) => {
+    if (PROTECTED_TABS.includes(tab) && !user && !isDemoMode) {
+      setAuthRedirectNotice(`Please sign in or create an account to access ${tab}.`);
+      setActiveTabState('login');
+      if (typeof window !== 'undefined') {
+        window.history.pushState(null, '', '/login');
+      }
+      return;
+    }
+    setActiveTabState(tab);
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', `/${tab === 'landing' ? '' : tab}`);
+    }
   };
 
   const setActiveTab = (tab: ActiveTab) => {
-    setActiveTabState(tab);
-    if (typeof window !== 'undefined') {
-      const url = tab === 'landing' ? '/' : `/${tab}`;
-      window.history.pushState({}, '', url);
-    }
-  };
-
-  const navigateTo = (tab: ActiveTab) => {
-    if (PROTECTED_TABS.includes(tab) && !user) {
-      setAuthRedirectNotice(`Please sign in to access ${tab.charAt(0).toUpperCase() + tab.slice(1)}.`);
-      setActiveTab('login');
-      return;
-    }
-    setActiveTab(tab);
+    navigateTo(tab);
   };
 
   const clearAuthNotice = () => setAuthRedirectNotice(null);
 
-  // Authentication
+  // --------------------------------------------------------------------------
+  // Authentication Actions
+  // --------------------------------------------------------------------------
   const signup = async (name: string, email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const cleanEmail = email.trim().toLowerCase();
     if (!name.trim()) return { success: false, error: 'Full name is required.' };
     if (!cleanEmail || !cleanEmail.includes('@')) return { success: false, error: 'Valid email address is required.' };
     if (!pass || pass.length < 6) return { success: false, error: 'Password must be at least 6 characters long.' };
 
-    const existing = usersDb.find((u) => u.email.toLowerCase() === cleanEmail);
-    if (existing) {
-      return { success: false, error: 'An account with this email already exists. Please log in.' };
+    try {
+      const res = await apiSignup(name.trim(), cleanEmail, pass);
+      if (res.success && res.user) {
+        setUser({
+          id: res.user.id,
+          name: res.user.name,
+          email: res.user.email,
+          avatar: res.user.avatar,
+          createdAt: res.user.createdAt || res.user.created_at,
+          plan: res.user.plan || 'Pro',
+        });
+        setIsDemoMode(false);
+        setDbError(null);
+        addToast(`Welcome to Comment2DM, ${res.user.name}! Your account is saved in PostgreSQL.`, 'success');
+        navigateTo('onboarding');
+        return { success: true };
+      }
+      return { success: false, error: 'Registration failed.' };
+    } catch (err: any) {
+      const errorMsg = err.message || 'Signup failed';
+      setDbError(errorMsg);
+      addToast(errorMsg, 'error');
+      return { success: false, error: errorMsg };
     }
-
-    const newAccount: StoredAccount = {
-      id: 'user_' + Date.now(),
-      name: name.trim(),
-      email: cleanEmail,
-      passwordHash: pass,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-      createdAt: new Date().toISOString().split('T')[0],
-      plan: 'Free',
-    };
-
-    setUsersDb((prev) => [...prev, newAccount]);
-    const loggedUser: User = {
-      id: newAccount.id,
-      name: newAccount.name,
-      email: newAccount.email,
-      avatar: newAccount.avatar,
-      createdAt: newAccount.createdAt,
-      plan: newAccount.plan,
-    };
-    setUser(loggedUser);
-    addToast(`Welcome to Comment2DM, ${loggedUser.name}! Let's build your first campaign.`);
-    setActiveTab('onboarding');
-    return { success: true };
   };
 
   const login = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !pass) return { success: false, error: 'Email and password are required.' };
 
-    const matched = usersDb.find((u) => u.email.toLowerCase() === cleanEmail);
-    if (!matched) {
-      return { success: false, error: 'No account found with this email. Please check spelling or sign up.' };
+    try {
+      const res = await apiLogin(cleanEmail, pass);
+      if (res.success && res.user) {
+        setUser({
+          id: res.user.id,
+          name: res.user.name,
+          email: res.user.email,
+          avatar: res.user.avatar,
+          createdAt: res.user.createdAt || res.user.created_at,
+          plan: res.user.plan || 'Pro',
+        });
+        setIsDemoMode(false);
+        setDbError(null);
+        addToast(`Signed in as ${res.user.name}. Loading data from PostgreSQL...`, 'success');
+        navigateTo('dashboard');
+        return { success: true };
+      }
+      return { success: false, error: 'Invalid email or password.' };
+    } catch (err: any) {
+      const errorMsg = err.message || 'Login failed';
+      setDbError(errorMsg);
+      addToast(errorMsg, 'error');
+      return { success: false, error: errorMsg };
     }
-
-    if (matched.passwordHash !== pass) {
-      return { success: false, error: 'Incorrect password. Please try again.' };
-    }
-
-    const loggedUser: User = {
-      id: matched.id,
-      name: matched.name,
-      email: matched.email,
-      avatar: matched.avatar,
-      createdAt: matched.createdAt,
-      plan: matched.plan,
-    };
-    setUser(loggedUser);
-    addToast(`Signed in as ${loggedUser.name}.`);
-    setActiveTab('dashboard');
-    return { success: true };
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await apiLogout();
+    } catch {}
     setUser(null);
-    setActiveTab('landing');
+    setIsDemoMode(false);
+    setCampaigns([]);
+    setLeads([]);
+    setActivityLogs([]);
+    setTrackedClicks([]);
+    navigateTo('landing');
     addToast('Signed out successfully.', 'info');
   };
 
   const forgotPassword = async (email: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    const matched = usersDb.find((u) => u.email.toLowerCase() === cleanEmail);
-    if (!matched) {
-      return { success: false, error: 'Email address not found.' };
-    }
-    return { success: true, message: `Password reset instructions sent to ${cleanEmail}.` };
+    if (!cleanEmail) return { success: false, error: 'Please enter an email address.' };
+    return { success: true, message: `If an account exists for ${cleanEmail}, password reset instructions were sent.` };
+  };
+
+  // Demo Mode Switchers
+  const enterDemoMode = () => {
+    setIsDemoMode(true);
+    setUser({
+      id: 'user_demo_01',
+      name: 'Creator Studio (Sample)',
+      email: 'demo@comment2dm.com',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      createdAt: '2026-03-01',
+      plan: 'Pro',
+    });
+    setCampaigns(INITIAL_CAMPAIGNS);
+    setTemplates(INITIAL_TEMPLATES);
+    setLeads(INITIAL_LEADS);
+    setActivityLogs(INITIAL_ACTIVITY_LOGS);
+    setTrackedClicks(INITIAL_TRACKED_CLICKS);
+    addToast('Entered Demo Mode: Showing sample data. Actions will not affect PostgreSQL.', 'info');
+    navigateTo('dashboard');
+  };
+
+  const exitDemoMode = () => {
+    setIsDemoMode(false);
+    setUser(null);
+    setCampaigns([]);
+    setLeads([]);
+    setActivityLogs([]);
+    setTrackedClicks([]);
+    navigateTo('landing');
+    addToast('Exited Demo Mode.', 'info');
   };
 
   const toggleInstagramConnection = () => {
@@ -705,8 +594,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Lead Inbox Operations
-  const addLead = (leadData: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>) => {
+  // --------------------------------------------------------------------------
+  // Leads Operations (PostgreSQL or Demo In-Memory)
+  // --------------------------------------------------------------------------
+  const addLead = async (leadData: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>) => {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const newLead: Lead = {
       ...leadData,
@@ -714,39 +605,98 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: now,
       updatedAt: now,
     };
-    setLeads((prev) => [newLead, ...prev]);
-    apiSaveLead(newLead, user?.id).catch(() => {});
-    addToast(`New lead added to Lead Inbox: @${newLead.username}`);
-  };
 
-  const updateLeadStatus = (leadId: string, status: LeadStatus) => {
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    setLeads((prev) =>
-      prev.map((l) => (l.id === leadId ? { ...l, status, updatedAt: now } : l))
-    );
-    apiUpdateLeadStatus(leadId, status).catch(() => {});
-    addToast(`Lead status updated to ${status}.`);
-  };
-
-  const updateLeadNotes = (leadId: string, notes: string) => {
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    setLeads((prev) =>
-      prev.map((l) => (l.id === leadId ? { ...l, notes, updatedAt: now } : l))
-    );
-    const found = leads.find((l) => l.id === leadId);
-    if (found) {
-      apiUpdateLeadStatus(leadId, found.status, notes).catch(() => {});
+    if (isDemoMode) {
+      setLeads((prev) => [newLead, ...prev]);
+      addToast(`[Demo] Lead added: @${newLead.username}`);
+      return;
     }
-    addToast('Lead notes saved.', 'info');
+
+    try {
+      const res = await apiSaveLead({
+        id: newLead.id,
+        username: newLead.username,
+        userAvatar: newLead.userAvatar,
+        comment: newLead.comment,
+        commentId: newLead.commentId,
+        commentTime: newLead.commentTime,
+        campaignId: newLead.campaignId,
+        campaignName: newLead.campaignName,
+        matchedKeyword: newLead.matchedKeyword,
+        dmSent: newLead.dmSent,
+        link: newLead.link,
+        status: newLead.status,
+        notes: newLead.notes,
+        source: newLead.source,
+        postThumbnail: newLead.postThumbnail,
+        qualificationAnswers: newLead.qualificationAnswers,
+        timeline: newLead.timeline,
+      });
+
+      if (res?.lead) {
+        setLeads((prev) => [mapLeadFromDb(res.lead), ...prev]);
+        addToast(`Lead saved to PostgreSQL: @${newLead.username}`);
+      }
+    } catch (err: any) {
+      addToast(`Failed to save lead: ${err.message}`, 'error');
+      setDbError(err.message);
+    }
   };
 
-  const deleteLead = (leadId: string) => {
-    setLeads((prev) => prev.filter((l) => l.id !== leadId));
-    apiDeleteLead(leadId).catch(() => {});
-    addToast('Lead removed from inbox.', 'info');
+  const updateLeadStatus = async (leadId: string, status: LeadStatus) => {
+    if (isDemoMode) {
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status, updatedAt: new Date().toISOString() } : l)));
+      addToast(`[Demo] Lead status changed to ${status}`);
+      return;
+    }
+
+    try {
+      await apiUpdateLeadStatus(leadId, status);
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status, updatedAt: new Date().toISOString() } : l)));
+      addToast(`Lead status updated to ${status}`);
+    } catch (err: any) {
+      addToast(`Failed to update status: ${err.message}`, 'error');
+    }
   };
 
-  // Campaign Management
+  const updateLeadNotes = async (leadId: string, notes: string) => {
+    const lead = leads.find((l) => l.id === leadId);
+    if (!lead) return;
+
+    if (isDemoMode) {
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, notes, updatedAt: new Date().toISOString() } : l)));
+      addToast('[Demo] Lead notes updated.');
+      return;
+    }
+
+    try {
+      await apiUpdateLeadStatus(leadId, lead.status, notes);
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, notes, updatedAt: new Date().toISOString() } : l)));
+      addToast('Lead notes saved to PostgreSQL.');
+    } catch (err: any) {
+      addToast(`Failed to save notes: ${err.message}`, 'error');
+    }
+  };
+
+  const deleteLead = async (leadId: string) => {
+    if (isDemoMode) {
+      setLeads((prev) => prev.filter((l) => l.id !== leadId));
+      addToast('[Demo] Lead removed.');
+      return;
+    }
+
+    try {
+      await apiDeleteLead(leadId);
+      setLeads((prev) => prev.filter((l) => l.id !== leadId));
+      addToast('Lead deleted from PostgreSQL.');
+    } catch (err: any) {
+      addToast(`Failed to delete lead: ${err.message}`, 'error');
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // Campaign Operations (PostgreSQL or Demo In-Memory)
+  // --------------------------------------------------------------------------
   const openCreateCampaign = (initial?: Partial<Campaign>) => {
     setEditingCampaign(initial ? ({ ...initial, id: '' } as Campaign) : null);
     setIsEditorOpen(true);
@@ -762,14 +712,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setEditingCampaign(null);
   };
 
-  const saveCampaign = (campaignData: Partial<Campaign>): boolean => {
-    // Client-side validation
+  const saveCampaign = async (campaignData: Partial<Campaign>): Promise<boolean> => {
+    // Validation
     if (!campaignData.name?.trim()) {
       addToast('Validation error: Campaign name cannot be empty.', 'error');
       return false;
     }
     if (!campaignData.keyword?.trim()) {
-      addToast('Validation error: At least one trigger keyword is required.', 'error');
+      addToast('Validation error: Trigger keyword is required.', 'error');
       return false;
     }
     if (!campaignData.message?.trim()) {
@@ -781,160 +731,209 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return false;
     }
 
-    // Never activate unless setup is verified
     let desiredStatus: 'active' | 'paused' = campaignData.status || 'active';
     if (desiredStatus === 'active' && !campaignData.setupVerified) {
-      addToast('Setup not verified. Campaign saved as draft/paused until verified.', 'info');
+      addToast('Setup not verified. Campaign will be saved as draft/paused.', 'info');
       desiredStatus = 'paused';
     }
 
-    if (editingCampaign?.id) {
-      const updatedCampaign = {
-        ...editingCampaign,
-        ...campaignData,
-        status: desiredStatus,
-      } as Campaign;
-      setCampaigns((prev) =>
-        prev.map((c) => (c.id === editingCampaign.id ? updatedCampaign : c))
-      );
-      apiSaveCampaign(updatedCampaign, user?.id).catch(() => {});
-      addToast(`Campaign "${campaignData.name}" updated successfully.`);
-    } else {
-      const selectedPost = posts.find((p) => p.id === campaignData.postId) || posts[0];
-      const newCampaign: Campaign = {
-        id: 'camp_' + Date.now(),
-        name: campaignData.name.trim(),
-        postId: selectedPost.id,
-        postThumbnail: selectedPost.thumbnail,
-        postCaption: selectedPost.caption,
-        keyword: campaignData.keyword.trim().toUpperCase(),
-        matchType: campaignData.matchType || 'contains',
-        caseInsensitive: campaignData.caseInsensitive ?? true,
-        sendOncePerUser: campaignData.sendOncePerUser ?? true,
-        offer: campaignData.offer?.trim() || '',
-        publicCommentReply: campaignData.publicCommentReply?.trim() || 'Sent you a DM! Check your inbox 🚀',
-        callToAction: campaignData.callToAction?.trim() || 'Click to Access',
-        qualificationQuestions: campaignData.qualificationQuestions || [],
-        setupVerified: campaignData.setupVerified ?? true,
-        message: campaignData.message.trim(),
-        link: campaignData.link.trim(),
-        status: desiredStatus,
-        createdAt: new Date().toISOString().split('T')[0],
-        commentsCount: 0,
-        dmsSentCount: 0,
-        clicksCount: 0,
+    const selectedPost = posts.find((p) => p.id === campaignData.postId) || posts[0];
+
+    const payload = {
+      id: editingCampaign?.id || `camp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: campaignData.name.trim(),
+      status: desiredStatus,
+      postId: selectedPost.id,
+      postThumbnail: selectedPost.thumbnail,
+      postCaption: selectedPost.caption,
+      keyword: campaignData.keyword.trim().toUpperCase(),
+      matchType: campaignData.matchType || 'contains',
+      caseInsensitive: campaignData.caseInsensitive ?? true,
+      sendOncePerUser: campaignData.sendOncePerUser ?? true,
+      message: campaignData.message.trim(),
+      link: campaignData.link.trim(),
+      offer: campaignData.offer?.trim() || '',
+      publicCommentReply: campaignData.publicCommentReply?.trim() || 'Sent you a DM! Check your inbox 🚀',
+      callToAction: campaignData.callToAction?.trim() || 'Click to Access',
+      qualificationQuestions: campaignData.qualificationQuestions || [],
+      setupVerified: campaignData.setupVerified ?? true,
+      commentsCount: editingCampaign?.commentsCount || 0,
+      dmsSentCount: editingCampaign?.dmsSentCount || 0,
+      clicksCount: editingCampaign?.clicksCount || 0,
+    };
+
+    if (isDemoMode) {
+      const demoCampaign: Campaign = {
+        ...payload,
+        createdAt: editingCampaign?.createdAt || new Date().toISOString().split('T')[0],
       };
-      setCampaigns((prev) => [newCampaign, ...prev]);
-      apiSaveCampaign(newCampaign, user?.id).catch(() => {});
-      addToast(`Campaign "${newCampaign.name}" created!`);
+      if (editingCampaign?.id) {
+        setCampaigns((prev) => prev.map((c) => (c.id === editingCampaign.id ? demoCampaign : c)));
+      } else {
+        setCampaigns((prev) => [demoCampaign, ...prev]);
+      }
+      addToast(`[Demo Mode] Campaign "${payload.name}" saved in-memory.`);
+      closeEditor();
+      return true;
     }
 
-    closeEditor();
-    return true;
+    // Live PostgreSQL Mode
+    try {
+      const res = await apiSaveCampaign(payload);
+      if (res?.campaign) {
+        const savedCampaign = mapCampaignFromDb(res.campaign);
+        if (editingCampaign?.id) {
+          setCampaigns((prev) => prev.map((c) => (c.id === editingCampaign.id ? savedCampaign : c)));
+        } else {
+          setCampaigns((prev) => [savedCampaign, ...prev]);
+        }
+        addToast(`Campaign "${savedCampaign.name}" saved to PostgreSQL!`, 'success');
+        closeEditor();
+        return true;
+      }
+      throw new Error('Server returned empty campaign response.');
+    } catch (err: any) {
+      console.error('[Save Campaign Error]', err);
+      const msg = err.message || 'Failed to save campaign to PostgreSQL';
+      setDbError(msg);
+      addToast(`Database Error: ${msg}`, 'error');
+      return false;
+    }
   };
 
-  const toggleCampaignStatus = (id: string) => {
+  const toggleCampaignStatus = async (id: string) => {
     const camp = campaigns.find((c) => c.id === id);
     if (!camp) return;
 
-    if (camp.status === 'paused') {
-      // Check setup verification before activating
-      if (!camp.setupVerified) {
-        addToast('Cannot activate: Setup is not verified. Please review and verify configuration.', 'error');
-        openEditCampaign(camp);
-        return;
-      }
-      const updated = { ...camp, status: 'active' as const };
-      setCampaigns((prev) =>
-        prev.map((c) => (c.id === id ? updated : c))
-      );
-      apiSaveCampaign(updated, user?.id).catch(() => {});
-      addToast(`Campaign "${camp.name}" is now Active.`);
-    } else {
-      const updated = { ...camp, status: 'paused' as const };
-      setCampaigns((prev) =>
-        prev.map((c) => (c.id === id ? updated : c))
-      );
-      apiSaveCampaign(updated, user?.id).catch(() => {});
-      addToast(`Campaign "${camp.name}" is Paused.`, 'info');
+    const nextStatus = camp.status === 'active' ? 'paused' : 'active';
+
+    if (nextStatus === 'active' && !camp.setupVerified) {
+      addToast('Cannot activate: Setup is not verified. Please review and verify configuration.', 'error');
+      openEditCampaign(camp);
+      return;
+    }
+
+    if (isDemoMode) {
+      setCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, status: nextStatus } : c)));
+      addToast(`[Demo] Campaign status changed to ${nextStatus}.`);
+      return;
+    }
+
+    try {
+      await apiUpdateCampaignStatus(id, nextStatus);
+      setCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, status: nextStatus } : c)));
+      addToast(`Campaign status changed to ${nextStatus}.`);
+    } catch (err: any) {
+      addToast(`Failed to update status: ${err.message}`, 'error');
     }
   };
 
-  const duplicateCampaign = (id: string) => {
+  const duplicateCampaign = async (id: string) => {
     const original = campaigns.find((c) => c.id === id);
     if (!original) return;
 
-    const duplicated: Campaign = {
+    const newName = `${original.name} (Copy)`;
+    const newKeyword = `${original.keyword}_COPY`;
+
+    await saveCampaign({
       ...original,
-      id: 'camp_' + Date.now(),
-      name: `${original.name} (Copy)`,
+      id: '',
+      name: newName,
+      keyword: newKeyword,
       status: 'paused',
       commentsCount: 0,
       dmsSentCount: 0,
       clicksCount: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setCampaigns((prev) => [duplicated, ...prev]);
-    apiSaveCampaign(duplicated, user?.id).catch(() => {});
-    addToast(`Duplicated campaign as "${duplicated.name}".`);
+    });
   };
 
-  const deleteCampaign = (id: string) => {
-    const toDelete = campaigns.find((c) => c.id === id);
-    setCampaigns((prev) => prev.filter((c) => c.id !== id));
-    apiDeleteCampaign(id).catch(() => {});
-    addToast(`Deleted campaign "${toDelete?.name || id}".`, 'info');
-  };
+  const deleteCampaign = async (id: string) => {
+    if (isDemoMode) {
+      setCampaigns((prev) => prev.filter((c) => c.id !== id));
+      addToast('[Demo] Campaign deleted.');
+      return;
+    }
 
-  // Template Management
-  const saveTemplate = (templateData: Partial<Template>) => {
-    if (templateData.id) {
-      setTemplates((prev) =>
-        prev.map((t) => (t.id === templateData.id ? ({ ...t, ...templateData } as Template) : t))
-      );
-      addToast(`Template updated.`);
-    } else {
-      const newTpl: Template = {
-        id: 'tpl_' + Date.now(),
-        title: templateData.title || 'Custom DM Template',
-        category: templateData.category || 'ebook',
-        keywordSuggestion: templateData.keywordSuggestion || 'LINK',
-        offer: templateData.offer || '',
-        publicCommentReply: templateData.publicCommentReply || 'Check your DMs! 🚀',
-        callToAction: templateData.callToAction || 'View Link',
-        message: templateData.message || 'Hey {{username}}! Here is your link: {{link}}',
-        defaultLink: templateData.defaultLink || 'https://example.com',
-        description: templateData.description || 'Custom reusable DM flow',
-        usageCount: 0,
-        qualificationQuestions: templateData.qualificationQuestions || [],
-      };
-      setTemplates((prev) => [newTpl, ...prev]);
-      addToast(`New template "${newTpl.title}" created.`);
+    try {
+      await apiDeleteCampaign(id);
+      setCampaigns((prev) => prev.filter((c) => c.id !== id));
+      addToast('Campaign deleted from PostgreSQL.');
+    } catch (err: any) {
+      addToast(`Failed to delete campaign: ${err.message}`, 'error');
     }
   };
 
-  const deleteTemplate = (id: string) => {
-    setTemplates((prev) => prev.filter((t) => t.id !== id));
-    addToast(`Template removed.`, 'info');
+  // --------------------------------------------------------------------------
+  // Message Template Operations
+  // --------------------------------------------------------------------------
+  const saveTemplate = async (templateData: Partial<Template>) => {
+    if (!templateData.title?.trim() || !templateData.message?.trim()) {
+      addToast('Template title and message cannot be empty.', 'error');
+      return;
+    }
+
+    const payload = {
+      id: templateData.id || `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      title: templateData.title.trim(),
+      category: (templateData.category as TemplateCategory) || 'ebook',
+      keywordSuggestion: templateData.keywordSuggestion || 'LINK',
+      offer: templateData.offer || '',
+      message: templateData.message.trim(),
+      publicCommentReply: templateData.publicCommentReply || 'Check your DMs! 🚀',
+      callToAction: templateData.callToAction || 'View Link',
+      defaultLink: templateData.defaultLink || 'https://example.com',
+      description: templateData.description || 'Custom reusable DM flow',
+      qualificationQuestions: templateData.qualificationQuestions || [],
+    };
+
+    if (isDemoMode) {
+      const demoTpl: Template = {
+        ...payload,
+        usageCount: 0,
+      };
+      setTemplates((prev) => [demoTpl, ...prev]);
+      addToast(`[Demo] Template "${payload.title}" created.`);
+      return;
+    }
+
+    try {
+      const res = await apiSaveTemplate(payload);
+      if (res?.template) {
+        setTemplates((prev) => [mapTemplateFromDb(res.template), ...prev]);
+        addToast(`Template "${payload.title}" saved to PostgreSQL!`, 'success');
+      }
+    } catch (err: any) {
+      addToast(`Failed to save template: ${err.message}`, 'error');
+    }
+  };
+
+  const deleteTemplate = async (id: string) => {
+    if (isDemoMode) {
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+      addToast('[Demo] Template removed.', 'info');
+      return;
+    }
+
+    try {
+      await apiDeleteTemplate(id);
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+      addToast('Template removed from PostgreSQL.', 'info');
+    } catch (err: any) {
+      addToast(`Failed to remove template: ${err.message}`, 'error');
+    }
   };
 
   const duplicateTemplate = (id: string) => {
     const original = templates.find((t) => t.id === id);
     if (!original) return;
-    const copy: Template = {
+    saveTemplate({
       ...original,
-      id: 'tpl_' + Date.now(),
+      id: '',
       title: `${original.title} (Copy)`,
-      usageCount: 0,
-    };
-    setTemplates((prev) => [copy, ...prev]);
-    addToast(`Template duplicated.`);
+    });
   };
 
   const applyTemplateToNewCampaign = (tpl: Template) => {
-    setTemplates((prev) =>
-      prev.map((t) => (t.id === tpl.id ? { ...t, usageCount: t.usageCount + 1 } : t))
-    );
     openCreateCampaign({
       name: `${tpl.title} Campaign`,
       keyword: tpl.keywordSuggestion,
@@ -949,7 +948,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     navigateTo('campaigns');
   };
 
-  // Keyword Matching Helper
+  // Keyword Matching
   const matchKeyword = (
     comment: string,
     keywordRule: string,
@@ -975,30 +974,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { matched: false, detectedKeyword: '' };
   };
 
+  // --------------------------------------------------------------------------
   // Simulator Execution
+  // --------------------------------------------------------------------------
   const runSimulator = async (
     rawUsername: string,
     commentText: string,
     specificCampaignId?: string
   ): Promise<SimulatorExecutionResult> => {
-    const cleanUsername = rawUsername.replace(/^@/, '').trim() || 'demo_user';
+    const cleanUsername = rawUsername.replace(/^@/, '').trim() || 'simulator_user';
     const cleanComment = commentText.trim();
     const commentId = 'cmt_' + Date.now();
 
-    // Check duplicate prevention
+    // Exactly-once check
     if (repliedComments.has(cleanUsername.toLowerCase())) {
-      const errorReason = `Duplicate blocked: Private reply already sent to @${cleanUsername} for this campaign. Meta strictly enforces exactly-once messaging.`;
-      addErrorLog({
-        type: 'rule_violation',
-        endpoint: 'POST /v21.0/messages',
-        status: 'Failed',
-        errorCode: 'META_RULE_ONCE_PER_COMMENT',
-        commentId,
-        reason: errorReason,
-        payloadSummary: JSON.stringify({ recipient: { username: cleanUsername } }),
-      });
+      const errorReason = `Duplicate blocked: Private reply already sent to @${cleanUsername}. Meta strictly enforces exactly-once messaging.`;
       addToast(errorReason, 'error');
-
       return {
         success: false,
         username: cleanUsername,
@@ -1006,14 +997,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         steps: [
           { id: 'detect', label: 'Keyword detected', status: 'completed', detail: 'Comment received' },
           { id: 'match', label: 'Campaign matched', status: 'completed', detail: 'Campaign rule triggered' },
-          { id: 'prepare', label: 'Eligibility check', status: 'failed', detail: 'Duplicate private reply blocked' },
+          { id: 'prepare', label: 'Eligibility check', status: 'failed', detail: 'Duplicate blocked' },
           { id: 'send', label: 'Send reply', status: 'failed', detail: 'Meta exactly-once rule enforced' },
         ],
         errorReason,
       };
     }
 
-    // Find matching campaign
     let targetCampaign: Campaign | undefined;
     let matchedKw = '';
 
@@ -1026,11 +1016,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           targetCampaign.matchType,
           targetCampaign.caseInsensitive
         );
-        if (matched) {
-          matchedKw = detectedKeyword;
-        } else {
-          matchedKw = targetCampaign.keyword.split(',')[0].trim();
-        }
+        matchedKw = matched ? detectedKeyword : targetCampaign.keyword.split(',')[0].trim();
       }
     } else {
       for (const camp of campaigns.filter((c) => c.status === 'active')) {
@@ -1048,18 +1034,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
 
-    // Handle unsupported trigger
     if (!targetCampaign) {
       const activeCamps = campaigns.filter((c) => c.status === 'active');
       if (activeCamps.length === 0) {
-        const err = 'No active campaigns found. Please activate or verify a campaign first.';
-        addErrorLog({
-          type: 'api_call_failed',
-          endpoint: 'POST /v21.0/messages',
-          status: 'Needs attention',
-          errorCode: 'NO_ACTIVE_CAMPAIGNS',
-          reason: err,
-        });
+        const err = 'No active campaigns found. Please activate or create a campaign first.';
         addToast(err, 'error');
         return {
           success: false,
@@ -1084,7 +1062,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const preparedMessage = (targetCampaign.message || 'Hello {{username}}! Here is your link: {{link}}')
       .replace(/{{username}}/g, `@${cleanUsername}`)
       .replace(/{{first_name}}/g, firstName.charAt(0).toUpperCase() + firstName.slice(1))
-      .replace(/{{link}}/g, targetCampaign.link || 'https://gumroad.com/l/free-guide');
+      .replace(/{{link}}/g, targetCampaign.link || 'https://example.com/guide');
 
     const activityId = 'log_' + Date.now();
     const newLog: ActivityLog = {
@@ -1097,30 +1075,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       matchedKeyword: matchedKw,
       dmMessage: preparedMessage,
       link: targetCampaign.link,
-      status: isInstagramConnected ? 'Sent successfully' : 'Demo mode',
+      status: isDemoMode ? 'Demo mode' : 'Sent successfully',
       clicked: false,
       responseTimeMs: Math.floor(650 + Math.random() * 400),
     };
 
-    setCampaigns((prev) =>
-      prev.map((c) => {
-        if (c.id === targetCampaign?.id) {
-          return {
-            ...c,
-            commentsCount: c.commentsCount + 1,
-            dmsSentCount: c.dmsSentCount + 1,
-          };
-        }
-        return c;
-      })
-    );
-
     setActivityLogs((prev) => [newLog, ...prev]);
 
-    // Record the lead in Lead Inbox with full 6-stage status timeline per comment
-    const nowTime = new Date().toLocaleTimeString();
-    const newLead: Lead = {
-      id: 'lead_' + Date.now(),
+    // Update campaign metrics
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === targetCampaign?.id
+          ? { ...c, commentsCount: c.commentsCount + 1, dmsSentCount: c.dmsSentCount + 1 }
+          : c
+      )
+    );
+
+    // Record lead in CRM
+    const newLeadData: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'> = {
       username: cleanUsername,
       comment: cleanComment,
       commentId,
@@ -1131,62 +1103,61 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       dmSent: preparedMessage,
       link: targetCampaign.link,
       status: 'New',
-      notes: `Automated trigger from comment: "${cleanComment}"`,
+      notes: `Automated simulator comment trigger: "${cleanComment}"`,
       source: `Simulator: ${targetCampaign.name}`,
       postThumbnail: targetCampaign.postThumbnail,
       timeline: [
-        {
-          stage: 'Comment detected',
-          timestamp: nowTime,
-          detail: `Comment parsed: "${cleanComment}"`,
-          success: true,
-        },
-        {
-          stage: 'Campaign matched',
-          timestamp: nowTime,
-          detail: `Matched campaign "${targetCampaign.name}" on keyword "${matchedKw}"`,
-          success: true,
-        },
-        {
-          stage: 'Eligibility checked',
-          timestamp: nowTime,
-          detail: 'Comment fresh (<7 days) and exactly-once rule checked',
-          success: true,
-        },
-        {
-          stage: 'Message prepared',
-          timestamp: nowTime,
-          detail: `Merged variables {{username}} and destination link`,
-          success: true,
-        },
-        {
-          stage: 'Sent',
-          timestamp: nowTime,
-          detail: `Dispatched private reply via Graph API: recipient.comment_id = ${commentId}`,
-          success: true,
-        },
-        {
-          stage: 'Result recorded',
-          timestamp: nowTime,
-          detail: 'Delivery recorded and added to Lead Inbox',
-          success: true,
-        },
+        { stage: 'Comment detected', timestamp: new Date().toLocaleTimeString(), detail: `Comment parsed: "${cleanComment}"`, success: true },
+        { stage: 'Campaign matched', timestamp: new Date().toLocaleTimeString(), detail: `Matched campaign "${targetCampaign.name}" on "${matchedKw}"`, success: true },
+        { stage: 'Eligibility checked', timestamp: new Date().toLocaleTimeString(), detail: 'Fresh comment & exactly-once verified', success: true },
+        { stage: 'Message prepared', timestamp: new Date().toLocaleTimeString(), detail: 'Template rendered with user variables', success: true },
+        { stage: 'Sent', timestamp: new Date().toLocaleTimeString(), detail: `Dispatched private reply via Graph API`, success: true },
+        { stage: 'Result recorded', timestamp: new Date().toLocaleTimeString(), detail: 'Recorded in PostgreSQL Lead Inbox', success: true },
       ],
-      createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
     };
 
-    setLeads((prev) => [newLead, ...prev]);
+    addLead(newLeadData);
+
+    // If live PostgreSQL mode: record comment and DM event to database
+    if (!isDemoMode && user) {
+      apiRecordCommentEvent({
+        igUserId: 'ig_connected_user',
+        commentId,
+        commenterUsername: cleanUsername,
+        commentText: cleanComment,
+        commentTimestamp: new Date(),
+        isEligible: true,
+        matchedCampaignId: targetCampaign.id,
+        matchedKeyword: matchedKw,
+        status: 'processed',
+      }).catch((err) => console.error('[Event Record Error]', err));
+
+      apiRecordDmEvent({
+        campaignId: targetCampaign.id,
+        commentId,
+        recipientUsername: cleanUsername,
+        messageText: preparedMessage,
+        status: 'Sent successfully',
+        mode: 'live',
+      }).catch((err) => console.error('[DM Event Record Error]', err));
+
+      // Persist incremented campaign counter to DB
+      apiSaveCampaign({
+        ...targetCampaign,
+        commentsCount: targetCampaign.commentsCount + 1,
+        dmsSentCount: targetCampaign.dmsSentCount + 1,
+      }).catch(() => {});
+    }
 
     return {
       success: true,
       username: cleanUsername,
       comment: cleanComment,
       steps: [
-        { id: 'detect', label: 'Comment detected', status: 'completed', detail: `Keyword "${matchedKw}" parsed in comment` },
-        { id: 'match', label: 'Campaign matched', status: 'completed', detail: `Rule matched: ${targetCampaign.name}` },
-        { id: 'prepare', label: 'Eligibility checked & message prepared', status: 'completed', detail: `Personalized for @${cleanUsername}` },
-        { id: 'send', label: isInstagramConnected ? 'Sent successfully' : 'Demo reply delivered', status: 'completed', detail: 'Delivered to direct inbox and recorded in Lead Inbox' },
+        { id: 'detect', label: 'Comment detected', status: 'completed', detail: `Keyword "${matchedKw}" found` },
+        { id: 'match', label: 'Campaign matched', status: 'completed', detail: `Triggered "${targetCampaign.name}"` },
+        { id: 'prepare', label: 'Message prepared', status: 'completed', detail: `Personalized for @${cleanUsername}` },
+        { id: 'send', label: isDemoMode ? 'Demo reply delivered' : 'Delivered & Saved to DB', status: 'completed', detail: 'Recorded in PostgreSQL' },
       ],
       matchedCampaign: targetCampaign,
       matchedKeyword: matchedKw,
@@ -1202,16 +1173,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       prev.map((log) => {
         if (log.id === logId && !log.clicked) {
           affectedCampaignId = log.campaignId;
-          return {
-            ...log,
-            clicked: true,
-            clickTimestamp: 'Just now',
-          };
+          return { ...log, clicked: true, clickTimestamp: 'Just now' };
         }
         return log;
       })
     );
-
     if (affectedCampaignId) {
       recordTrackedClick(affectedCampaignId, undefined, 'Test Simulator Link');
     }
@@ -1219,7 +1185,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const recordTrackedClick = (campaignId: string, leadId?: string, referrer = 'Tracked Redirect (Direct Message)') => {
     const camp = campaigns.find((c) => c.id === campaignId);
-    const lead = leadId ? leads.find((l) => l.id === leadId) : undefined;
     const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
     const newClick: TrackedClickEvent = {
@@ -1229,62 +1194,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       campaignId,
       campaignName: camp?.name || 'Active Campaign',
       leadId,
-      username: lead?.username || (leadId ? 'user' : 'instagram_follower'),
-      destinationUrl: camp?.link || 'https://gumroad.com/l/resource',
+      username: leadId ? 'user' : 'instagram_follower',
+      destinationUrl: camp?.link || 'https://example.com',
       referrer,
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Instagram Mobile Webview',
     };
 
     setTrackedClicks((prev) => [newClick, ...prev]);
 
-    // Update campaign metrics
     setCampaigns((prev) =>
       prev.map((c) => (c.id === campaignId ? { ...c, clicksCount: c.clicksCount + 1 } : c))
     );
 
-    // Update lead timeline & status if lead identified
-    if (leadId) {
-      setLeads((prev) =>
-        prev.map((l) => {
-          if (l.id === leadId) {
-            const updatedTimeline = [
-              ...l.timeline,
-              {
-                stage: 'Result recorded' as const,
-                timestamp: new Date().toLocaleTimeString(),
-                detail: `Tracked link clicked: visited destination "${camp?.link || 'offer link'}"`,
-                success: true,
-              },
-            ];
-            return {
-              ...l,
-              status: l.status === 'New' || l.status === 'Link sent' ? 'Interested' : l.status,
-              timeline: updatedTimeline,
-              updatedAt: nowIso,
-            };
-          }
-          return l;
-        })
-      );
-    }
-
-    addToast(`Link click verified & recorded for campaign "${camp?.name || campaignId}"!`, 'success');
+    addToast(`Link click recorded for campaign "${camp?.name || campaignId}"!`, 'success');
   };
 
   const updateFollowUpTemplate = (id: string, newText: string, newTitle?: string) => {
     setFollowUpTemplates((prev) =>
-      prev.map((t) => {
-        if (t.id === id) {
-          return {
-            ...t,
-            templateText: newText,
-            title: newTitle || t.title,
-          };
-        }
-        return t;
-      })
+      prev.map((t) => (t.id === id ? { ...t, templateText: newText, title: newTitle || t.title } : t))
     );
-    addToast('Follow-up template saved successfully.', 'success');
+    addToast('Follow-up template saved.', 'success');
   };
 
   const approveAndSendFollowUp = (
@@ -1295,10 +1224,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     aiReasoning: string
   ) => {
     const targetLead = leads.find((l) => l.id === leadId);
-    if (!targetLead) {
-      addToast('Lead not found in inbox.', 'error');
-      return;
-    }
+    if (!targetLead) return;
 
     const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const outboundRecord: OutboundFollowUpRecord = {
@@ -1316,59 +1242,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setOutboundFollowUps((prev) => [outboundRecord, ...prev]);
 
-    // Update lead notes and timeline in Lead Inbox
     setLeads((prev) =>
-      prev.map((l) => {
-        if (l.id === leadId) {
-          const updatedTimeline = [
-            ...l.timeline,
-            {
-              stage: 'Sent' as const,
-              timestamp: new Date().toLocaleTimeString(),
-              detail: `Manual approved follow-up sent: "${message.slice(0, 48)}..."`,
-              success: true,
-            },
-          ];
-          return {
-            ...l,
-            status: 'Needs follow-up' as const,
-            notes:
-              (l.notes ? l.notes + '\n' : '') +
-              `[Follow-up Approved ${new Date().toLocaleTimeString()}]: "${message.slice(0, 60)}..."`,
-            timeline: updatedTimeline,
-            updatedAt: nowIso,
-          };
-        }
-        return l;
-      })
+      prev.map((l) =>
+        l.id === leadId
+          ? {
+              ...l,
+              status: 'Needs follow-up' as const,
+              notes: (l.notes ? l.notes + '\n' : '') + `[Follow-up Approved ${new Date().toLocaleTimeString()}]: "${message.slice(0, 60)}..."`,
+              updatedAt: nowIso,
+            }
+          : l
+      )
     );
 
-    addToast(`Follow-up approved & sent to @${targetLead.username} via official Instagram DM!`, 'success');
+    addToast(`Follow-up sent to @${targetLead.username}!`, 'success');
   };
 
   const resetAllData = () => {
     setCampaigns(INITIAL_CAMPAIGNS);
     setTemplates(INITIAL_TEMPLATES);
     setActivityLogs(INITIAL_ACTIVITY_LOGS);
-    setErrorLogs(INITIAL_ERROR_LOGS);
     setLeads(INITIAL_LEADS);
     setTrackedClicks(INITIAL_TRACKED_CLICKS);
-    setFollowUpTemplates(INITIAL_FOLLOWUP_TEMPLATES);
-    setOutboundFollowUps([]);
     setIsInstagramConnected(false);
-    try {
-      const userId = user?.id || 'demo';
-      localStorage.removeItem(`${STORAGE_KEYS.CAMPAIGNS}_${userId}`);
-      localStorage.removeItem(`${STORAGE_KEYS.TEMPLATES}_${userId}`);
-      localStorage.removeItem(`${STORAGE_KEYS.LOGS}_${userId}`);
-      localStorage.removeItem(`${STORAGE_KEYS.ERRORS}_${userId}`);
-      localStorage.removeItem(`${STORAGE_KEYS.LEADS}_${userId}`);
-      localStorage.removeItem(`${STORAGE_KEYS.TRACKED_CLICKS}_${userId}`);
-      localStorage.removeItem(`${STORAGE_KEYS.FOLLOWUP_TEMPLATES}_${userId}`);
-      localStorage.removeItem(`${STORAGE_KEYS.OUTBOUND_FOLLOWUPS}_${userId}`);
-      localStorage.removeItem(STORAGE_KEYS.IG_CONNECTED);
-    } catch {}
-    addToast('Demo database restored to default sample state.', 'info');
+    addToast('Sample datasets restored in Demo Mode.', 'info');
   };
 
   const seedDemoActivity = () => {
@@ -1376,16 +1273,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const randomUser = sampleNames[Math.floor(Math.random() * sampleNames.length)];
     const activeCamps = campaigns.filter((c) => c.status === 'active');
     const selectedCamp = activeCamps[Math.floor(Math.random() * activeCamps.length)] || campaigns[0];
-    const kw = selectedCamp.keyword.split(',')[0].trim();
+    const kw = selectedCamp ? selectedCamp.keyword.split(',')[0].trim() : 'PDF';
 
-    runSimulator(randomUser, `Hey! Commenting "${kw}" please send the link`, selectedCamp.id);
+    runSimulator(randomUser, `Hey! Commenting "${kw}" please send the link`, selectedCamp?.id);
     addToast(`New simulated follower comment received from @${randomUser}!`);
   };
 
-  const totalComments = campaigns.reduce((acc, c) => acc + c.commentsCount, 0);
-  const totalDMsSent = campaigns.reduce((acc, c) => acc + c.dmsSentCount, 0);
-  const totalClicks = campaigns.reduce((acc, c) => acc + c.clicksCount, 0);
+  const addErrorLog = (logData: Omit<InstagramErrorLog, 'id' | 'timestamp'>) => {
+    const newLog: InstagramErrorLog = {
+      ...logData,
+      id: 'err_' + Date.now(),
+      timestamp: 'Just now',
+    };
+    setErrorLogs((prev) => [newLog, ...prev]);
+  };
+
+  const clearErrorLogs = () => {
+    setErrorLogs([]);
+    addToast('Instagram error logs cleared.', 'info');
+  };
+
+  const totalComments = campaigns.reduce((acc, c) => acc + (c.commentsCount || 0), 0);
+  const totalDMsSent = campaigns.reduce((acc, c) => acc + (c.dmsSentCount || 0), 0);
+  const totalClicks = campaigns.reduce((acc, c) => acc + (c.clicksCount || 0), 0);
   const activeCampaignsCount = campaigns.filter((c) => c.status === 'active').length;
+
+  const instagramStatus: AppStatus = isInstagramConnected ? 'Connected' : 'Setup required';
 
   return (
     <AppContext.Provider
@@ -1445,6 +1358,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         totalDMsSent,
         totalClicks,
         activeCampaignsCount,
+        isDemoMode,
+        enterDemoMode,
+        exitDemoMode,
+        dbError,
+        clearDbError,
+        refreshData,
       }}
     >
       {children}
