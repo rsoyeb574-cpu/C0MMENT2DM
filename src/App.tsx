@@ -16,6 +16,9 @@ import { OnboardingView } from './pages/OnboardingView';
 import { CampaignCoachView } from './pages/CampaignCoachView';
 import { FollowUpAssistantView } from './pages/FollowUpAssistantView';
 import { LoginPage, SignupPage, ForgotPasswordPage } from './pages/AuthPages';
+import { PrivacyPage } from './pages/PrivacyPage';
+import { TermsPage } from './pages/TermsPage';
+import { DataDeletionPage } from './pages/DataDeletionPage';
 import { CampaignEditorModal } from './pages/CampaignEditorModal';
 import {
   LayoutDashboard,
@@ -45,6 +48,17 @@ const AppContent: React.FC = () => {
     }
     if (activeTab === 'forgot-password') {
       return <ForgotPasswordPage />;
+    }
+
+    // Public Legal & Compliance Pages
+    if (activeTab === 'privacy') {
+      return <PrivacyPage />;
+    }
+    if (activeTab === 'terms') {
+      return <TermsPage />;
+    }
+    if (activeTab === 'data-deletion') {
+      return <DataDeletionPage />;
     }
 
     // Public Landing Page

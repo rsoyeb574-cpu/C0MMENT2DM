@@ -665,3 +665,44 @@ export async function dbRecordUsage(record: {
   );
   return res?.rows[0] || null;
 }
+
+// ============================================================================
+// 10. Data Deletion (Meta Webhook & User Self-Service GDPR/CCPA Compliance)
+// ============================================================================
+
+export async function dbDeleteUserDataByEmail(email: string) {
+  if (!isDatabaseConfigured()) {
+    throw new Error('DATABASE_URL is not configured.');
+  }
+  const cleanEmail = email.toLowerCase().trim();
+  const user = await dbGetUserByEmail(cleanEmail);
+  if (!user) {
+    return { found: false, deletedCount: 0 };
+  }
+  const userId = user.id;
+  await query('DELETE FROM message_templates WHERE user_id = $1', [userId]);
+  await query('DELETE FROM comment_events WHERE user_id = $1', [userId]);
+  await query('DELETE FROM dm_events WHERE user_id = $1', [userId]);
+  await query('DELETE FROM link_clicks WHERE user_id = $1', [userId]);
+  await query('DELETE FROM instagram_accounts WHERE user_id = $1', [userId]);
+  await query('DELETE FROM users WHERE id = $1', [userId]);
+  return { found: true, userId, deletedCount: 1 };
+}
+
+export async function dbDeleteUserDataByInstagramId(igUserId: string) {
+  if (!isDatabaseConfigured()) {
+    throw new Error('DATABASE_URL is not configured.');
+  }
+  const accountRes = await query('SELECT * FROM instagram_accounts WHERE ig_user_id = $1 LIMIT 1', [igUserId]);
+  const account = accountRes?.rows[0];
+  if (account && account.user_id) {
+    const userRes = await dbGetUserById(account.user_id);
+    if (userRes && userRes.email) {
+      return await dbDeleteUserDataByEmail(userRes.email);
+    }
+  }
+  await query('DELETE FROM comment_events WHERE ig_user_id = $1', [igUserId]);
+  await query('DELETE FROM instagram_accounts WHERE ig_user_id = $1', [igUserId]);
+  return { found: true, deletedCount: 1 };
+}
+

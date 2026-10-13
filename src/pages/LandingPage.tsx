@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 
 export const LandingPage: React.FC = () => {
-  const { setActiveTab, templates, applyTemplateToNewCampaign } = useApp();
+  const { setActiveTab, navigateTo, templates, applyTemplateToNewCampaign } = useApp();
 
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [activeFaqIndex, setActiveFaqIndex] = useState<number | null>(null);
@@ -966,9 +966,29 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="border-t border-slate-900 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
-          <p>© 2026 Comment2DM. All rights reserved.</p>
-          <p className="text-slate-400 text-center sm:text-right">
+        <div className="border-t border-slate-900 py-6 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-5">
+            <span>© 2026 Comment2DM. All rights reserved.</span>
+            <button
+              onClick={() => navigateTo('privacy')}
+              className="text-slate-300 hover:text-white transition-colors cursor-pointer underline"
+            >
+              Privacy Policy
+            </button>
+            <button
+              onClick={() => navigateTo('terms')}
+              className="text-slate-300 hover:text-white transition-colors cursor-pointer underline"
+            >
+              Terms of Service
+            </button>
+            <button
+              onClick={() => navigateTo('data-deletion')}
+              className="text-rose-400 hover:text-rose-300 transition-colors cursor-pointer underline"
+            >
+              Data Deletion (Meta & GDPR)
+            </button>
+          </div>
+          <p className="text-slate-400 text-center md:text-right">
             Independent software architecture. Designed for official Meta Graph API compliance.
           </p>
         </div>

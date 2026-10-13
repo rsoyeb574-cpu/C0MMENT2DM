@@ -177,6 +177,12 @@ function getTabFromPath(path: string): ActiveTab {
       return 'instagram';
     case 'settings':
       return 'settings';
+    case 'privacy':
+      return 'privacy';
+    case 'terms':
+      return 'terms';
+    case 'data-deletion':
+      return 'data-deletion';
     default:
       return 'landing';
   }

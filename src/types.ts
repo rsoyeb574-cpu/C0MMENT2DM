@@ -138,7 +138,10 @@ export type ActiveTab =
   | 'settings'
   | 'login'
   | 'signup'
-  | 'forgot-password';
+  | 'forgot-password'
+  | 'privacy'
+  | 'terms'
+  | 'data-deletion';
 
 export interface InstagramErrorLog {
   id: string;

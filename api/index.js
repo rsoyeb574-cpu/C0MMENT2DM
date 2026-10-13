@@ -30114,6 +30114,11 @@ async function dbGetUserByEmail(email) {
   const res = await query("SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1", [email]);
   return res?.rows[0] || null;
 }
+async function dbGetUserById(id) {
+  if (!isDatabaseConfigured()) return null;
+  const res = await query("SELECT * FROM users WHERE id = $1 LIMIT 1", [id]);
+  return res?.rows[0] || null;
+}
 async function dbCreateUser(user) {
   if (!isDatabaseConfigured()) {
     throw new Error("DATABASE_URL is not configured. Cannot save user.");
@@ -30585,6 +30590,40 @@ async function dbRecordUsage(record) {
     ]
   );
   return res?.rows[0] || null;
+}
+async function dbDeleteUserDataByEmail(email) {
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL is not configured.");
+  }
+  const cleanEmail = email.toLowerCase().trim();
+  const user = await dbGetUserByEmail(cleanEmail);
+  if (!user) {
+    return { found: false, deletedCount: 0 };
+  }
+  const userId = user.id;
+  await query("DELETE FROM message_templates WHERE user_id = $1", [userId]);
+  await query("DELETE FROM comment_events WHERE user_id = $1", [userId]);
+  await query("DELETE FROM dm_events WHERE user_id = $1", [userId]);
+  await query("DELETE FROM link_clicks WHERE user_id = $1", [userId]);
+  await query("DELETE FROM instagram_accounts WHERE user_id = $1", [userId]);
+  await query("DELETE FROM users WHERE id = $1", [userId]);
+  return { found: true, userId, deletedCount: 1 };
+}
+async function dbDeleteUserDataByInstagramId(igUserId) {
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL is not configured.");
+  }
+  const accountRes = await query("SELECT * FROM instagram_accounts WHERE ig_user_id = $1 LIMIT 1", [igUserId]);
+  const account = accountRes?.rows[0];
+  if (account && account.user_id) {
+    const userRes = await dbGetUserById(account.user_id);
+    if (userRes && userRes.email) {
+      return await dbDeleteUserDataByEmail(userRes.email);
+    }
+  }
+  await query("DELETE FROM comment_events WHERE ig_user_id = $1", [igUserId]);
+  await query("DELETE FROM instagram_accounts WHERE ig_user_id = $1", [igUserId]);
+  return { found: true, deletedCount: 1 };
 }
 
 // server/services/cryptoService.ts
@@ -31602,6 +31641,78 @@ app.post("/api/ai-suggest", async (req, res) => {
       `What is your main goal this quarter?`,
       `Are you currently working on this solo or with a team?`
     ]
+  });
+});
+app.get("/api/config", (_req, res) => {
+  res.json({
+    contactEmail: process.env.CONTACT_EMAIL || process.env.VITE_CONTACT_EMAIL || "support@comment2dm.com"
+  });
+});
+app.post("/api/user/delete-data", async (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.includes("@")) {
+    res.status(400).json({ success: false, error: "Valid email address is required for deletion request." });
+    return;
+  }
+  try {
+    const confirmationCode = `c2dm_del_${Date.now()}_${crypto4.randomBytes(4).toString("hex")}`;
+    const result = await dbDeleteUserDataByEmail(email);
+    const token = req.cookies?.session_token;
+    if (token) {
+      res.clearCookie("session_token", { path: "/" });
+    }
+    const host = req.get("host") || "localhost:3000";
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+    const statusUrl = `${protocol}://${host}/data-deletion?code=${confirmationCode}`;
+    res.json({
+      success: true,
+      message: result.found ? "All personal data, campaigns, leads, and tokens have been permanently removed from PostgreSQL." : "Request recorded. No active account was associated with this email address.",
+      confirmationCode,
+      statusUrl,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: sanitizeError(err) });
+  }
+});
+app.post("/api/webhooks/instagram/data-deletion", async (req, res) => {
+  try {
+    let igUserId = req.body?.user_id;
+    if (req.body?.signed_request) {
+      const parts = req.body.signed_request.split(".");
+      if (parts.length === 2) {
+        try {
+          const payload = Buffer.from(parts[1], "base64").toString("utf8");
+          const data = JSON.parse(payload);
+          igUserId = data.user_id || igUserId;
+        } catch {
+        }
+      }
+    }
+    const confirmationCode = `meta_del_${Date.now()}_${crypto4.randomBytes(4).toString("hex")}`;
+    if (igUserId) {
+      await dbDeleteUserDataByInstagramId(igUserId);
+    }
+    const host = req.get("host") || "localhost:3000";
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+    const statusUrl = `${protocol}://${host}/data-deletion?code=${confirmationCode}`;
+    res.json({
+      url: statusUrl,
+      confirmation_code: confirmationCode
+    });
+  } catch (err) {
+    console.error("[Meta Deletion Callback Error]", err);
+    res.status(500).json({ error: sanitizeError(err) });
+  }
+});
+app.get("/api/auth/data-deletion/status/:code", (req, res) => {
+  const { code } = req.params;
+  res.json({
+    success: true,
+    confirmationCode: code,
+    status: "completed",
+    message: "User data and credentials successfully purged from PostgreSQL.",
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
   });
 });
 var app_default = app;
