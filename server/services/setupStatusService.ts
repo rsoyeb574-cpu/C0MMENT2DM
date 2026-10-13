@@ -1,5 +1,5 @@
-import { getInstagramConfig, isInstagramConfigured, INSTAGRAM_BUSINESS_SCOPES } from './instagramService';
-import { testEncryptionHealth } from './cryptoService';
+import { getInstagramConfig, isInstagramConfigured, INSTAGRAM_BUSINESS_SCOPES } from './instagramService.js';
+import { testEncryptionHealth } from './cryptoService.js';
 
 export interface SetupStatusResponse {
   mode: 'demo' | 'live';

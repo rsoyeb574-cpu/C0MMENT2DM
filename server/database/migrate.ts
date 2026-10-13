@@ -8,7 +8,7 @@ import {
   query,
   getExistingTables,
   closePool,
-} from './db';
+} from './db.js';
 
 const REQUIRED_TABLES = [
   'users',

@@ -4,8 +4,8 @@ import {
   getInstagramConfig,
   sendPrivateReply,
   SEVEN_DAYS_MS,
-} from '../services/instagramService';
-import { dbRecordCommentEvent, dbRecordDmEvent, dbRecordUsage } from '../database/queries';
+} from '../services/instagramService.js';
+import { dbRecordCommentEvent, dbRecordDmEvent, dbRecordUsage } from '../database/queries.js';
 
 export interface CommentWebhookPayload {
   object: string;

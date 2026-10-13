@@ -1,4 +1,4 @@
-import { encryptToken, decryptToken } from './cryptoService';
+import { encryptToken, decryptToken } from './cryptoService.js';
 
 export const INSTAGRAM_BUSINESS_SCOPES = [
   'instagram_business_basic',

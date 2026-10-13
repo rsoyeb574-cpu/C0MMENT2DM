@@ -1,4 +1,4 @@
-import { query, isDatabaseConfigured } from './db';
+import { query, isDatabaseConfigured } from './db.js';
 
 // User Queries
 export async function dbGetUserByEmail(email: string) {

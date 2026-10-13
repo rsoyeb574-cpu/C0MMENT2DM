@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build:client": "vite build",
+    "build:server": "esbuild api/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=api/index.js --packages=external",
+    "build": "vite build && npm run build:server",
     "start": "tsx server.ts",
     "db:migrate": "tsx server/database/migrate.ts",
     "migrate": "tsx server/database/migrate.ts",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "rm -rf dist api/index.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

@@ -5,8 +5,8 @@ import {
   getExistingTables,
   getSafeDatabaseMeta,
   isDatabaseConfigured,
-} from './database/db';
-import { runMigration } from './database/migrate';
+} from './database/db.js';
+import { runMigration } from './database/migrate.js';
 import {
   dbGetCampaigns,
   dbSaveCampaign,
@@ -21,21 +21,21 @@ import {
   dbUpsertUser,
   dbGetUserByEmail,
   dbUpsertInstagramAccount,
-} from './database/queries';
+} from './database/queries.js';
 import {
   getSetupStatus,
-} from './services/setupStatusService';
+} from './services/setupStatusService.js';
 import {
   getBusinessLoginUrl,
   exchangeCodeForShortLivedToken,
   exchangeForLongLivedToken,
   getInstagramUserProfile,
-} from './services/instagramService';
-import { encryptToken } from './services/cryptoService';
+} from './services/instagramService.js';
+import { encryptToken } from './services/cryptoService.js';
 import {
   handleWebhookChallenge,
   handleWebhookEvent,
-} from './webhooks/instagramWebhook';
+} from './webhooks/instagramWebhook.js';
 
 const app = express();
 
@@ -60,11 +60,46 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // --------------------------------------------------------------------------
 // 1. Health & Database Status Endpoints
 // --------------------------------------------------------------------------
-app.get('/api/health', (_req: Request, res: Response) => {
+app.get('/api/health', async (_req: Request, res: Response) => {
+  if (isDatabaseConfigured()) {
+    try {
+      const conn = await testConnection();
+      if (conn.connected) {
+        res.json({
+          status: 'ok',
+          database: 'connected',
+          latencyMs: conn.latencyMs,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+      res.status(503).json({
+        status: 'error',
+        database: 'disconnected',
+        error: conn.error || 'Database connection failed',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    } catch (err: any) {
+      const safeError = err?.message
+        ? err.message.replace(/postgres(ql)?:\/\/[^@]+@/, 'postgresql://***@')
+        : 'Database connection failed';
+      res.status(503).json({
+        status: 'error',
+        database: 'error',
+        error: safeError,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+  }
+
+  // If DATABASE_URL is not configured (demo mode)
   res.json({
     status: 'ok',
+    database: 'demo_mode',
+    message: 'Running in demo mode (DATABASE_URL not set)',
     timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV || 'development',
   });
 });
 
