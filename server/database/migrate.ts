@@ -12,8 +12,10 @@ import {
 
 const REQUIRED_TABLES = [
   'users',
+  'sessions',
   'instagram_accounts',
   'campaigns',
+  'keywords',
   'message_templates',
   'comment_events',
   'dm_events',
