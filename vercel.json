@@ -1,23 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {
-    "api/index.cjs": {
-      "includeFiles": "server/**",
-      "maxDuration": 30
-    }
-  },
   "rewrites": [
     {
-      "source": "/api",
-      "destination": "/api/index.cjs"
-    },
-    {
       "source": "/api/(.*)",
-      "destination": "/api/index.cjs"
+      "destination": "/api"
     },
     {
       "source": "/r/(.*)",
-      "destination": "/api/index.cjs"
+      "destination": "/api"
     },
     {
       "source": "/(.*)",

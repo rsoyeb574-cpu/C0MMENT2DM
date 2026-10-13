@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server/vercel-entry.ts --bundle --platform=node --format=cjs --outfile=api/index.cjs --packages=bundle",
-    "build:server": "esbuild server/vercel-entry.ts --bundle --platform=node --format=cjs --outfile=api/index.cjs --packages=bundle",
+    "build": "vite build && esbuild server/vercel-entry.ts --bundle --platform=node --format=esm --outfile=api/index.js --packages=bundle --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
+    "build:server": "esbuild server/vercel-entry.ts --bundle --platform=node --format=esm --outfile=api/index.js --packages=bundle --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
     "start": "tsx server.ts",
     "db:migrate": "tsx server/database/migrate.ts",
     "migrate": "tsx server/database/migrate.ts",
     "preview": "vite preview",
-    "clean": "rm -rf dist api/index.cjs",
+    "clean": "rm -rf dist api/index.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
