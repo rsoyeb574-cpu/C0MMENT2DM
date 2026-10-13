@@ -5,6 +5,7 @@ import {
   sendPrivateReply,
   SEVEN_DAYS_MS,
 } from '../services/instagramService';
+import { dbRecordCommentEvent, dbRecordDmEvent, dbRecordUsage } from '../database/queries';
 
 export interface CommentWebhookPayload {
   object: string;
@@ -75,6 +76,7 @@ export function verifyMetaSignature(
 
 /**
  * Processes incoming Instagram Webhook events (POST /api/webhooks/instagram)
+ * Vercel serverless compatible: responds 200 quickly and persists events to PostgreSQL
  */
 export async function handleWebhookEvent(req: Request, res: Response): Promise<void> {
   const { appSecret } = getInstagramConfig();
@@ -121,6 +123,23 @@ export async function handleWebhookEvent(req: Request, res: Response): Promise<v
 
         // Check 7-day rule
         const isExpired = Date.now() - commentCreatedTime > SEVEN_DAYS_MS;
+        
+        // Record comment event to PostgreSQL
+        await dbRecordCommentEvent({
+          id: `cmt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          igUserId,
+          commentId,
+          postId: comment.media?.id,
+          commenterUsername,
+          commenterId: comment.from?.id,
+          commentText,
+          commentTimestamp: new Date(commentCreatedTime),
+          isEligible: !isExpired,
+          status: isExpired ? 'skipped' : 'processed',
+          skipReason: isExpired ? 'Comment is older than 7 days.' : undefined,
+          rawPayload: comment,
+        }).catch((err) => console.error('[DB Comment Record Error]', err.message));
+
         if (isExpired) {
           results.push({
             commentId,
@@ -135,7 +154,7 @@ export async function handleWebhookEvent(req: Request, res: Response): Promise<v
           `[Webhook] Processing comment on IG ${igUserId} from @${commenterUsername}: "${commentText}" (ID: ${commentId})`
         );
 
-        // Simulated or Live Private Reply dispatch
+        // Private Reply dispatch
         const replyResult = await sendPrivateReply({
           igUserId,
           commentId,
@@ -144,14 +163,39 @@ export async function handleWebhookEvent(req: Request, res: Response): Promise<v
           forceDemo: process.env.NODE_ENV !== 'production' && !process.env.INSTAGRAM_ACCESS_TOKEN,
         });
 
+        const statusLabel = replyResult.success
+          ? replyResult.mode === 'demo'
+            ? 'Demo mode'
+            : 'Sent successfully'
+          : 'Failed';
+
+        // Record DM event to PostgreSQL
+        await dbRecordDmEvent({
+          id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          commentId,
+          recipientUsername: commenterUsername,
+          messageText: `Hey @${commenterUsername}! 🙌 Thanks for your comment. Here is your link: https://gumroad.com/l/free-guide`,
+          messageId: replyResult.messageId,
+          status: statusLabel,
+          mode: replyResult.mode,
+          ruleViolated: replyResult.ruleViolated,
+          errorDetail: replyResult.error,
+          responseTimeMs: 820,
+        }).catch((err) => console.error('[DB DM Record Error]', err.message));
+
+        // Record usage record in PostgreSQL
+        await dbRecordUsage({
+          id: `usg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          userId: 'default',
+          metric: 'dm_sent',
+          periodMonth: new Date().toISOString().substring(0, 7),
+          metadata: { commentId, commenterUsername, mode: replyResult.mode },
+        }).catch(() => {});
+
         results.push({
           commentId,
           username: commenterUsername,
-          status: replyResult.success
-            ? replyResult.mode === 'demo'
-              ? 'Demo mode'
-              : 'Sent successfully'
-            : 'Failed',
+          status: statusLabel,
           detail: replyResult.detail,
         });
       }

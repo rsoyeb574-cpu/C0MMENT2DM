@@ -28,6 +28,14 @@ import {
   INITIAL_TRACKED_CLICKS,
 } from '../data/mockData';
 
+import {
+  apiSaveCampaign,
+  apiDeleteCampaign,
+  apiSaveLead,
+  apiUpdateLeadStatus,
+  apiDeleteLead,
+} from '../services/dbApi';
+
 export interface ToastItem {
   id: string;
   message: string;
@@ -416,6 +424,69 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setOutboundFollowUps([]);
       }
     } catch {}
+
+    // Hydrate from PostgreSQL database when serverless connection is active
+    fetch(`/api/campaigns${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.campaigns && Array.isArray(data.campaigns) && data.campaigns.length > 0) {
+          const mapped = data.campaigns.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            postId: c.post_id || '',
+            postThumbnail: c.post_thumbnail,
+            postCaption: c.post_caption,
+            keyword: c.keyword,
+            matchType: c.match_type || 'contains',
+            caseInsensitive: c.case_insensitive ?? true,
+            sendOncePerUser: c.send_once_per_user ?? true,
+            message: c.message,
+            link: c.link,
+            status: c.status || 'active',
+            createdAt: c.created_at ? new Date(c.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            commentsCount: c.comments_count || 0,
+            dmsSentCount: c.dms_sent_count || 0,
+            clicksCount: c.clicks_count || 0,
+            offer: c.offer || '',
+            publicCommentReply: c.public_comment_reply || '',
+            callToAction: c.call_to_action || '',
+            qualificationQuestions: c.qualification_questions || [],
+            setupVerified: c.setup_verified ?? true,
+          }));
+          setCampaigns(mapped);
+        }
+      })
+      .catch(() => {});
+
+    fetch(`/api/leads${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.leads && Array.isArray(data.leads) && data.leads.length > 0) {
+          const mappedLeads = data.leads.map((l: any) => ({
+            id: l.id,
+            username: l.username,
+            userAvatar: l.user_avatar,
+            comment: l.comment,
+            commentId: l.comment_id,
+            commentTime: l.comment_time || new Date().toISOString(),
+            campaignId: l.campaign_id,
+            campaignName: l.campaign_name,
+            matchedKeyword: l.matched_keyword,
+            dmSent: l.dm_sent,
+            link: l.link,
+            status: l.status || 'New',
+            notes: l.notes || '',
+            source: l.source || 'Instagram Comment',
+            postThumbnail: l.post_thumbnail,
+            qualificationAnswers: l.qualification_answers || [],
+            timeline: l.timeline || [],
+            createdAt: l.created_at || new Date().toISOString(),
+            updatedAt: l.updated_at || new Date().toISOString(),
+          }));
+          setLeads(mappedLeads);
+        }
+      })
+      .catch(() => {});
   }, [user?.id]);
 
   // Persist Users DB & Auth User
@@ -644,6 +715,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updatedAt: now,
     };
     setLeads((prev) => [newLead, ...prev]);
+    apiSaveLead(newLead, user?.id).catch(() => {});
     addToast(`New lead added to Lead Inbox: @${newLead.username}`);
   };
 
@@ -652,6 +724,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLeads((prev) =>
       prev.map((l) => (l.id === leadId ? { ...l, status, updatedAt: now } : l))
     );
+    apiUpdateLeadStatus(leadId, status).catch(() => {});
     addToast(`Lead status updated to ${status}.`);
   };
 
@@ -660,11 +733,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLeads((prev) =>
       prev.map((l) => (l.id === leadId ? { ...l, notes, updatedAt: now } : l))
     );
+    const found = leads.find((l) => l.id === leadId);
+    if (found) {
+      apiUpdateLeadStatus(leadId, found.status, notes).catch(() => {});
+    }
     addToast('Lead notes saved.', 'info');
   };
 
   const deleteLead = (leadId: string) => {
     setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    apiDeleteLead(leadId).catch(() => {});
     addToast('Lead removed from inbox.', 'info');
   };
 
@@ -711,17 +789,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     if (editingCampaign?.id) {
+      const updatedCampaign = {
+        ...editingCampaign,
+        ...campaignData,
+        status: desiredStatus,
+      } as Campaign;
       setCampaigns((prev) =>
-        prev.map((c) =>
-          c.id === editingCampaign.id
-            ? ({
-                ...c,
-                ...campaignData,
-                status: desiredStatus,
-              } as Campaign)
-            : c
-        )
+        prev.map((c) => (c.id === editingCampaign.id ? updatedCampaign : c))
       );
+      apiSaveCampaign(updatedCampaign, user?.id).catch(() => {});
       addToast(`Campaign "${campaignData.name}" updated successfully.`);
     } else {
       const selectedPost = posts.find((p) => p.id === campaignData.postId) || posts[0];
@@ -749,6 +825,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         clicksCount: 0,
       };
       setCampaigns((prev) => [newCampaign, ...prev]);
+      apiSaveCampaign(newCampaign, user?.id).catch(() => {});
       addToast(`Campaign "${newCampaign.name}" created!`);
     }
 
@@ -767,14 +844,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         openEditCampaign(camp);
         return;
       }
+      const updated = { ...camp, status: 'active' as const };
       setCampaigns((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, status: 'active' } : c))
+        prev.map((c) => (c.id === id ? updated : c))
       );
+      apiSaveCampaign(updated, user?.id).catch(() => {});
       addToast(`Campaign "${camp.name}" is now Active.`);
     } else {
+      const updated = { ...camp, status: 'paused' as const };
       setCampaigns((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, status: 'paused' } : c))
+        prev.map((c) => (c.id === id ? updated : c))
       );
+      apiSaveCampaign(updated, user?.id).catch(() => {});
       addToast(`Campaign "${camp.name}" is Paused.`, 'info');
     }
   };
@@ -794,12 +875,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: new Date().toISOString().split('T')[0],
     };
     setCampaigns((prev) => [duplicated, ...prev]);
+    apiSaveCampaign(duplicated, user?.id).catch(() => {});
     addToast(`Duplicated campaign as "${duplicated.name}".`);
   };
 
   const deleteCampaign = (id: string) => {
     const toDelete = campaigns.find((c) => c.id === id);
     setCampaigns((prev) => prev.filter((c) => c.id !== id));
+    apiDeleteCampaign(id).catch(() => {});
     addToast(`Deleted campaign "${toDelete?.name || id}".`, 'info');
   };
 

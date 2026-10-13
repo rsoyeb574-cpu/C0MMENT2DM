@@ -252,3 +252,79 @@ A compliant lead nurturing workflow that enforces human oversight:
    - Test matching comments (e.g., `PDF please`). Watch the live 6-stage pipeline execute with mobile mockup.
    - Test duplicate comment to verify exactly-once deduplication rule enforcement.
 
+---
+
+## 🐘 PostgreSQL Database & Neon Serverless Integration
+
+Comment2DM is engineered for **Vercel Serverless** and cloud-native scalability, eliminating local SQLite file dependencies and long-running background loops.
+
+### Architecture Highlights
+- **Stateless Serverless Execution:** Fully compliant with Vercel serverless functions (`api/index.ts`) and Express middleware (`server/app.ts`). No local disk storage or memory leaks across invocations.
+- **Neon PostgreSQL Connection Pool:** Uses the `@neondatabase/serverless` / `pg` connection pool with SSL enforcement (`sslmode=require`), connection timeouts, and quick idle recycling suited for serverless spikes.
+- **Relational Tables Schema:**
+  1. `users` — User credentials, plans, and profiles
+  2. `instagram_accounts` — Connected Instagram accounts, encrypted tokens, and granted permissions
+  3. `campaigns` — Keyword triggers, match types, DM templates, and counters
+  4. `message_templates` — Production copy templates with suggested keywords and CTAs
+  5. `comment_events` — Deduplicated incoming comments with timestamps and eligibility status
+  6. `dm_events` — Private replies and outbound DMs with Meta API response status
+  7. `link_clicks` — Immutable recorded clicks via tracked redirect endpoint (`/r/:code`)
+  8. `usage_records` — Monthly quota tracking and action audit logging
+  9. `leads` — CRM lead inbox with stages and custom qualification questions
+- **Zero-Credential Exposure:** `DATABASE_URL` is securely stored strictly on the server and is **never** printed to browser logs, API error payloads, or frontend bundles. The system masks connection strings to show only host telemetry (`ep-*.neon.tech`).
+- **Seamless Demo Mode:** When `DATABASE_URL` is not provided or during local sandboxing, Comment2DM automatically and gracefully falls back to interactive Demo Mode with rich sample data so all features continue to operate without throwing connection exceptions.
+
+### How to Run the One-Time Migration
+
+#### Option 1: Via CLI (Recommended for CI/CD & Terminal)
+Set your Neon PostgreSQL connection string and run the migration script:
+```bash
+# 1. Set environment variable (or put in .env)
+export DATABASE_URL="postgresql://neondb_owner:YOUR_PASSWORD@ep-sample-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+# 2. Run the migration script
+npm run db:migrate
+# or: npm run migrate
+```
+
+The migration runner will execute `/server/database/schema.sql`, verify all 9 tables, create serverless performance indexes, and print a verified status report:
+```text
+====================================================
+ Comment2DM PostgreSQL Schema Migration Runner
+====================================================
+
+Target Host: ep-sample-pooler.us-east-2.aws.neon.tech
+Database:    neondb
+Status:      SUCCESS
+Duration:    84ms
+
+Verified Tables (9/9):
+  ✓ users
+  ✓ instagram_accounts
+  ✓ campaigns
+  ✓ message_templates
+  ✓ comment_events
+  ✓ dm_events
+  ✓ link_clicks
+  ✓ usage_records
+  ✓ leads
+
+Message: Successfully migrated all 9 tables to PostgreSQL
+```
+
+#### Option 2: Via the UI Settings Dashboard
+1. Open the application and navigate to **Settings** (`/settings`) from the sidebar.
+2. In the **PostgreSQL Database (Neon Serverless)** card, click **"Run Migration Now"**.
+3. View the live table verification grid updating with green badges as each table is confirmed.
+
+### Vercel Deployment Guide
+1. Push your repository to GitHub or import to Vercel.
+2. Under **Project Settings > Environment Variables**, add:
+   - `DATABASE_URL` = `postgresql://...@ep-...neon.tech/neondb?sslmode=require`
+   - `TOKEN_ENCRYPTION_KEY` = `your_32_byte_aes_key`
+   - `INSTAGRAM_APP_ID` = `your_meta_app_id`
+   - `INSTAGRAM_APP_SECRET` = `your_meta_app_secret`
+   - `INSTAGRAM_VERIFY_TOKEN` = `your_webhook_verify_token`
+3. Vercel automatically routes `/api/*` and `/r/*` to the serverless function in `/api/index.ts` via `vercel.json`, and serves the compiled React SPA from `/dist`.
+
+
