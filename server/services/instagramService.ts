@@ -19,16 +19,19 @@ export interface InstagramCredentials {
 }
 
 export function getInstagramConfig(): InstagramCredentials {
+  const clean = (val: string | undefined): string => {
+    if (!val) return '';
+    return val.trim().replace(/^["']|["']$/g, '');
+  };
+
   return {
-    appId: process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || '',
-    appSecret: process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || '',
+    appId: clean(process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID),
+    appSecret: clean(process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET),
     redirectUri:
-      process.env.INSTAGRAM_REDIRECT_URI ||
-      process.env.META_REDIRECT_URI ||
+      clean(process.env.INSTAGRAM_REDIRECT_URI || process.env.META_REDIRECT_URI) ||
       'http://localhost:3000/api/auth/instagram/callback',
     verifyToken:
-      process.env.INSTAGRAM_VERIFY_TOKEN ||
-      process.env.META_VERIFY_TOKEN ||
+      clean(process.env.INSTAGRAM_VERIFY_TOKEN || process.env.META_VERIFY_TOKEN) ||
       'comment2dm_instagram_verify_token_secure',
   };
 }

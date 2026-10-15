@@ -35,10 +35,14 @@ export const InstagramView: React.FC = () => {
     addErrorLog,
     clearErrorLogs,
     addToast,
+    serverSetupStatus,
+    refreshSetupStatus,
+    isLoadingSetupStatus,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'setup' | 'rules' | 'errors'>('setup');
   const [errorFilter, setErrorFilter] = useState<'all' | 'Failed' | 'Needs attention'>('all');
+  const [isStartingOAuth, setIsStartingOAuth] = useState(false);
 
   // Encryption health check state (honest crypto check)
   const [isCheckingCrypto, setIsCheckingCrypto] = useState(false);
@@ -56,6 +60,28 @@ export const InstagramView: React.FC = () => {
 
   const [repliedCommentsSet, setRepliedCommentsSet] = useState<Set<string>>(new Set());
 
+  const handleStartOAuth = async () => {
+    try {
+      setIsStartingOAuth(true);
+      const res = await fetch('/api/auth/instagram/url');
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        addToast('No authorization URL returned from server.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Failed to start Instagram OAuth: ' + (err.message || 'Error'), 'error');
+    } finally {
+      setIsStartingOAuth(false);
+    }
+  };
+
+  const isConfigured = Boolean(serverSetupStatus?.configured);
+
   // Permissions list required by Instagram API with Instagram Login
   const businessPermissions: Array<{
     scope: string;
@@ -65,17 +91,17 @@ export const InstagramView: React.FC = () => {
     {
       scope: 'instagram_business_basic',
       description: 'Read Instagram Business account profile metadata, follower counts, and media list.',
-      status: isInstagramConnected ? 'Waiting for authorization' : 'Setup required',
+      status: isInstagramConnected ? 'Connected' : isConfigured ? 'Waiting for authorization' : 'Setup required',
     },
     {
       scope: 'instagram_business_manage_comments',
       description: 'Subscribe to real-time comments webhook and read comment text for keyword triggers.',
-      status: isInstagramConnected ? 'Waiting for authorization' : 'Setup required',
+      status: isInstagramConnected ? 'Connected' : isConfigured ? 'Waiting for authorization' : 'Setup required',
     },
     {
       scope: 'instagram_business_manage_messages',
       description: 'Dispatch automated private replies to comments via POST /<IG_USER_ID>/messages within 7 days.',
-      status: isInstagramConnected ? 'Waiting for authorization' : 'Setup required',
+      status: isInstagramConnected ? 'Connected' : isConfigured ? 'Waiting for authorization' : 'Setup required',
     },
   ];
 
@@ -160,21 +186,42 @@ export const InstagramView: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      {/* Honest Mode Header Banner */}
+      {/* Honest Mode Header Banner - Dynamically Driven from Server */}
       <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-start gap-3">
-        <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+        {isConfigured ? (
+          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+        ) : (
+          <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+        )}
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
               Instagram API with Instagram Login (Business Login)
             </h2>
-            <StatusBadge status="Demo mode" />
+            <StatusBadge status={isConfigured ? 'Connected' : 'Demo mode'} />
             <StatusBadge status={instagramStatus} />
           </div>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Running in <strong>Demo mode</strong>. Live Instagram automation requires registering an app in Meta for Developers and adding <code className="text-indigo-300 font-mono">INSTAGRAM_APP_ID</code> and <code className="text-indigo-300 font-mono">INSTAGRAM_APP_SECRET</code> to your environment.
+            {isConfigured ? (
+              <span>
+                Server environment credentials detected: <code className="text-emerald-300 font-mono">INSTAGRAM_APP_ID</code> and <code className="text-emerald-300 font-mono">INSTAGRAM_APP_SECRET</code> are active. Ready for Meta OAuth authorization and live webhook handling.
+              </span>
+            ) : (
+              <span>
+                Running in <strong>Demo mode</strong>. Live Instagram automation requires registering an app in Meta for Developers and adding <code className="text-indigo-300 font-mono">INSTAGRAM_APP_ID</code> and <code className="text-indigo-300 font-mono">INSTAGRAM_APP_SECRET</code> to your Vercel environment variables.
+              </span>
+            )}
           </p>
         </div>
+        <button
+          onClick={() => refreshSetupStatus()}
+          disabled={isLoadingSetupStatus}
+          title="Refresh status from server"
+          className="px-2.5 py-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSetupStatus ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
       </div>
 
       {/* Sub-Navigation Tabs */}
@@ -225,6 +272,151 @@ export const InstagramView: React.FC = () => {
       {/* TAB 1: Connection & Setup */}
       {activeSubTab === 'setup' && (
         <div className="space-y-6">
+          {/* Live Environment Variables Status Box */}
+          <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-indigo-400" />
+                  <span>Server Environment Variables Status</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Live verification reported by server endpoint <code className="text-slate-300 font-mono">GET /api/setup-status</code> (booleans only, secrets never exposed).
+                </p>
+              </div>
+
+              <button
+                onClick={() => refreshSetupStatus()}
+                disabled={isLoadingSetupStatus}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSetupStatus ? 'animate-spin' : ''}`} />
+                <span>Re-check Server Status</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+              {/* INSTAGRAM_APP_ID */}
+              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] text-slate-500 block uppercase font-mono">INSTAGRAM_APP_ID</span>
+                <div className="flex items-center gap-1.5">
+                  {serverSetupStatus?.envVariables?.INSTAGRAM_APP_ID ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-semibold text-emerald-400 font-mono">Configured</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span className="text-xs font-semibold text-rose-400 font-mono">Missing</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* INSTAGRAM_APP_SECRET */}
+              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] text-slate-500 block uppercase font-mono">INSTAGRAM_APP_SECRET</span>
+                <div className="flex items-center gap-1.5">
+                  {serverSetupStatus?.envVariables?.INSTAGRAM_APP_SECRET ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-semibold text-emerald-400 font-mono">Configured</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span className="text-xs font-semibold text-rose-400 font-mono">Missing</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* INSTAGRAM_REDIRECT_URI */}
+              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] text-slate-500 block uppercase font-mono">INSTAGRAM_REDIRECT_URI</span>
+                <div className="flex items-center gap-1.5">
+                  {serverSetupStatus?.envVariables?.INSTAGRAM_REDIRECT_URI ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-semibold text-emerald-400 font-mono">Configured</span>
+                    </>
+                  ) : (
+                    <>
+                      <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="text-xs font-semibold text-amber-300 font-mono">Default Callback</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* INSTAGRAM_VERIFY_TOKEN */}
+              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] text-slate-500 block uppercase font-mono">INSTAGRAM_VERIFY_TOKEN</span>
+                <div className="flex items-center gap-1.5">
+                  {serverSetupStatus?.envVariables?.INSTAGRAM_VERIFY_TOKEN ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-semibold text-emerald-400 font-mono">Configured</span>
+                    </>
+                  ) : (
+                    <>
+                      <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="text-xs font-semibold text-amber-300 font-mono">Default Token</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* TOKEN_ENCRYPTION_KEY */}
+              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] text-slate-500 block uppercase font-mono">TOKEN_ENCRYPTION_KEY</span>
+                <div className="flex items-center gap-1.5">
+                  {serverSetupStatus?.envVariables?.TOKEN_ENCRYPTION_KEY ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-semibold text-emerald-400 font-mono">Configured</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span className="text-xs font-semibold text-rose-400 font-mono">Missing</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* DATABASE_URL */}
+              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] text-slate-500 block uppercase font-mono">DATABASE_URL (PostgreSQL)</span>
+                <div className="flex items-center gap-1.5">
+                  {serverSetupStatus?.envVariables?.DATABASE_URL ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-semibold text-emerald-400 font-mono">Connected</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span className="text-xs font-semibold text-rose-400 font-mono">Missing</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Vercel Redeployment Notice */}
+            <div className="p-3.5 rounded-lg bg-slate-950 border border-indigo-900/40 text-xs text-slate-300 space-y-1">
+              <div className="flex items-center gap-2 font-semibold text-indigo-300">
+                <Info className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span>Important note for Vercel users</span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                When you add or edit environment variables in Vercel (<span className="text-slate-300">Project Settings → Environment Variables</span>), already-deployed serverless functions do <strong>not</strong> automatically reload them. You must trigger a <strong>Redeploy</strong> in Vercel (<span className="text-slate-300">Deployments → click three dots "..." on your latest deployment → Redeploy</span>) for serverless functions to pick up the updated variables. After redeploying, click <strong>Re-check Server Status</strong> above.
+              </p>
+            </div>
+          </div>
+
           {/* Account Connection Card */}
           <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -241,34 +433,43 @@ export const InstagramView: React.FC = () => {
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {isInstagramConnected
-                      ? 'Waiting for authorization flow. Connect Meta credentials in environment variables for live connection.'
-                      : 'No live account linked. Running in safe local Demo mode.'}
+                      ? 'Instagram Business account authorized and ready for automated comment triggers.'
+                      : isConfigured
+                      ? 'Server credentials detected. Click Authorize to link your Instagram account via Meta.'
+                      : 'No live credentials detected on server. Configure variables in Vercel to activate live mode.'}
                   </p>
                 </div>
               </div>
 
-              <button
-                onClick={toggleInstagramConnection}
-                className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all flex items-center gap-2 cursor-pointer ${
-                  isInstagramConnected
-                    ? 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
-                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 active:scale-95'
-                }`}
-              >
-                <Instagram className="w-4 h-4" />
-                <span>
-                  {isInstagramConnected ? 'Reset to Setup Required' : 'Authorize Account (OAuth)'}
-                </span>
-              </button>
+              <div className="flex items-center gap-2">
+                {isConfigured ? (
+                  <button
+                    onClick={handleStartOAuth}
+                    disabled={isStartingOAuth}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg transition-all flex items-center gap-2 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 active:scale-95"
+                  >
+                    <Instagram className="w-4 h-4" />
+                    <span>{isStartingOAuth ? 'Connecting to Meta...' : 'Authorize Account (Meta OAuth)'}</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={toggleInstagramConnection}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg transition-all flex items-center gap-2 cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                  >
+                    <Instagram className="w-4 h-4" />
+                    <span>{isInstagramConnected ? 'Disable Connection' : 'Toggle Simulated Connection'}</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Honest Status Callout */}
+            {/* Status Callout */}
             <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 flex items-start gap-2.5 text-xs text-slate-300">
               <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold text-slate-200 block">Production Integration Notice</span>
                 <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                  Real Instagram comment-to-DM triggers use the official Instagram Business Login and Graph API v21.0. To link a production account, configure <code className="text-indigo-300 font-mono">INSTAGRAM_APP_ID</code> and <code className="text-indigo-300 font-mono">INSTAGRAM_APP_SECRET</code>. All simulator features remain fully usable in Demo mode.
+                  Real Instagram comment-to-DM triggers use the official Instagram Business Login and Graph API v21.0. To link a production account, configure <code className="text-indigo-300 font-mono">INSTAGRAM_APP_ID</code> and <code className="text-indigo-300 font-mono">INSTAGRAM_APP_SECRET</code> in Vercel. Simulator features remain fully usable in Demo mode.
                 </p>
               </div>
             </div>

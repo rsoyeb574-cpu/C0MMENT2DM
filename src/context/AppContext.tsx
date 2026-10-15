@@ -53,6 +53,29 @@ import {
   apiRecordLinkClick,
 } from '../services/dbApi';
 
+export interface ServerSetupStatus {
+  configured: boolean;
+  appIdConfigured: boolean;
+  appSecretConfigured: boolean;
+  redirectUriConfigured: boolean;
+  verifyTokenConfigured: boolean;
+  tokenEncryptionConfigured: boolean;
+  databaseConfigured: boolean;
+  mode: 'demo' | 'live';
+  automationReady: boolean;
+  instagramConnected: boolean;
+  webhookConfigured: boolean;
+  envVariables: {
+    INSTAGRAM_APP_ID: boolean;
+    INSTAGRAM_APP_SECRET: boolean;
+    INSTAGRAM_REDIRECT_URI: boolean;
+    INSTAGRAM_VERIFY_TOKEN: boolean;
+    TOKEN_ENCRYPTION_KEY: boolean;
+    DATABASE_URL: boolean;
+  };
+  missingRequirements: string[];
+}
+
 export interface ToastItem {
   id: string;
   message: string;
@@ -85,6 +108,9 @@ interface AppContextType {
   isInstagramConnected: boolean;
   instagramStatus: AppStatus;
   toggleInstagramConnection: () => void;
+  serverSetupStatus: ServerSetupStatus | null;
+  refreshSetupStatus: () => Promise<void>;
+  isLoadingSetupStatus: boolean;
   isEditorOpen: boolean;
   editingCampaign: Campaign | null;
   openCreateCampaign: (initial?: Partial<Campaign>) => void;
@@ -298,8 +324,44 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [followUpTemplates, setFollowUpTemplates] = useState<FollowUpTemplate[]>(INITIAL_FOLLOWUP_TEMPLATES);
   const [outboundFollowUps, setOutboundFollowUps] = useState<OutboundFollowUpRecord[]>([]);
 
-  // 4. Instagram Connection state
+  // 4. Instagram Connection & Server Setup Status
   const [isInstagramConnected, setIsInstagramConnected] = useState<boolean>(false);
+  const [serverSetupStatus, setServerSetupStatus] = useState<ServerSetupStatus | null>(null);
+  const [isLoadingSetupStatus, setIsLoadingSetupStatus] = useState<boolean>(true);
+
+  const fetchSetupStatus = useCallback(async () => {
+    try {
+      setIsLoadingSetupStatus(true);
+      const res = await fetch('/api/setup-status');
+      if (res.ok) {
+        const data: ServerSetupStatus = await res.json();
+        setServerSetupStatus(data);
+        if (data.configured) {
+          setIsInstagramConnected(true);
+        }
+      }
+      // Also check if current logged in session has an active Instagram connection
+      try {
+        const igRes = await fetch('/api/instagram/connection');
+        if (igRes.ok) {
+          const igData = await igRes.json();
+          if (igData.connected) {
+            setIsInstagramConnected(true);
+          }
+        }
+      } catch (_igErr) {
+        // Ignore connection probe failure
+      }
+    } catch (err) {
+      console.warn('Failed to fetch /api/setup-status:', err);
+    } finally {
+      setIsLoadingSetupStatus(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSetupStatus();
+  }, [fetchSetupStatus]);
 
   // 5. Editor & UI states
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -1304,7 +1366,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const totalClicks = campaigns.reduce((acc, c) => acc + (c.clicksCount || 0), 0);
   const activeCampaignsCount = campaigns.filter((c) => c.status === 'active').length;
 
-  const instagramStatus: AppStatus = isInstagramConnected ? 'Connected' : 'Setup required';
+  const instagramStatus: AppStatus = isDemoMode
+    ? 'Demo mode'
+    : serverSetupStatus?.configured
+    ? isInstagramConnected
+      ? 'Connected'
+      : 'Waiting for authorization'
+    : 'Setup required';
 
   return (
     <AppContext.Provider
@@ -1334,6 +1402,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isInstagramConnected,
         instagramStatus,
         toggleInstagramConnection,
+        serverSetupStatus,
+        refreshSetupStatus: fetchSetupStatus,
+        isLoadingSetupStatus,
         isEditorOpen,
         editingCampaign,
         openCreateCampaign,

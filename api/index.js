@@ -30214,6 +30214,14 @@ async function dbUpsertInstagramAccount(account) {
   );
   return res?.rows[0] || null;
 }
+async function dbGetInstagramAccount(userId) {
+  if (!isDatabaseConfigured()) return null;
+  const res = await query(
+    "SELECT * FROM instagram_accounts WHERE user_id = $1 AND is_connected = TRUE LIMIT 1",
+    [userId]
+  );
+  return res?.rows[0] || null;
+}
 async function dbGetCampaigns(userId) {
   if (!isDatabaseConfigured()) {
     throw new Error("DATABASE_URL is not configured.");
@@ -30682,11 +30690,15 @@ var INSTAGRAM_BUSINESS_SCOPES = [
 var SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1e3;
 var repliedCommentIds = /* @__PURE__ */ new Set();
 function getInstagramConfig() {
+  const clean = (val) => {
+    if (!val) return "";
+    return val.trim().replace(/^["']|["']$/g, "");
+  };
   return {
-    appId: process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || "",
-    appSecret: process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || "",
-    redirectUri: process.env.INSTAGRAM_REDIRECT_URI || process.env.META_REDIRECT_URI || "http://localhost:3000/api/auth/instagram/callback",
-    verifyToken: process.env.INSTAGRAM_VERIFY_TOKEN || process.env.META_VERIFY_TOKEN || "comment2dm_instagram_verify_token_secure"
+    appId: clean(process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID),
+    appSecret: clean(process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET),
+    redirectUri: clean(process.env.INSTAGRAM_REDIRECT_URI || process.env.META_REDIRECT_URI) || "http://localhost:3000/api/auth/instagram/callback",
+    verifyToken: clean(process.env.INSTAGRAM_VERIFY_TOKEN || process.env.META_VERIFY_TOKEN) || "comment2dm_instagram_verify_token_secure"
   };
 }
 function isInstagramConfigured() {
@@ -30889,26 +30901,56 @@ function getSetupStatus() {
   const config = getInstagramConfig();
   const isConfigured = isInstagramConfigured();
   const encryptionHealthy = testEncryptionHealth();
+  const appIdConfigured = Boolean(config.appId && config.appId.trim().length > 0);
+  const appSecretConfigured = Boolean(config.appSecret && config.appSecret.trim().length > 0);
+  const redirectUriConfigured = Boolean(
+    process.env.INSTAGRAM_REDIRECT_URI && process.env.INSTAGRAM_REDIRECT_URI.trim().length > 0 || process.env.META_REDIRECT_URI && process.env.META_REDIRECT_URI.trim().length > 0
+  );
+  const verifyTokenConfigured = Boolean(
+    process.env.INSTAGRAM_VERIFY_TOKEN && process.env.INSTAGRAM_VERIFY_TOKEN.trim().length > 0 || process.env.META_VERIFY_TOKEN && process.env.META_VERIFY_TOKEN.trim().length > 0
+  );
+  const tokenEncryptionConfigured = Boolean(
+    process.env.TOKEN_ENCRYPTION_KEY && process.env.TOKEN_ENCRYPTION_KEY.trim().length > 0 || process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim().length > 0
+  );
+  const databaseConfigured = isDatabaseConfigured();
   const missing = [];
-  if (!config.appId) {
-    missing.push("INSTAGRAM_APP_ID is not configured in .env");
+  if (!appIdConfigured) {
+    missing.push("INSTAGRAM_APP_ID");
   }
-  if (!config.appSecret) {
-    missing.push("INSTAGRAM_APP_SECRET is not configured in .env");
+  if (!appSecretConfigured) {
+    missing.push("INSTAGRAM_APP_SECRET");
   }
-  if (!process.env.TOKEN_ENCRYPTION_KEY && !process.env.SESSION_SECRET) {
-    missing.push("TOKEN_ENCRYPTION_KEY is required for AES-256-GCM token storage");
+  if (!tokenEncryptionConfigured) {
+    missing.push("TOKEN_ENCRYPTION_KEY (or SESSION_SECRET)");
   }
-  const automationReady = isConfigured && encryptionHealthy && missing.length === 0;
+  if (!databaseConfigured) {
+    missing.push("DATABASE_URL");
+  }
+  const automationReady = appIdConfigured && appSecretConfigured && encryptionHealthy;
   return {
+    configured: appIdConfigured && appSecretConfigured,
+    appIdConfigured,
+    appSecretConfigured,
+    redirectUriConfigured,
+    verifyTokenConfigured,
+    tokenEncryptionConfigured,
+    databaseConfigured,
     mode: automationReady ? "live" : "demo",
     automationReady,
-    instagramConnected: isConfigured,
-    webhookConfigured: Boolean(config.verifyToken && config.appSecret),
+    instagramConnected: appIdConfigured && appSecretConfigured,
+    webhookConfigured: Boolean(verifyTokenConfigured && appSecretConfigured),
+    envVariables: {
+      INSTAGRAM_APP_ID: appIdConfigured,
+      INSTAGRAM_APP_SECRET: appSecretConfigured,
+      INSTAGRAM_REDIRECT_URI: redirectUriConfigured,
+      INSTAGRAM_VERIFY_TOKEN: verifyTokenConfigured,
+      TOKEN_ENCRYPTION_KEY: tokenEncryptionConfigured,
+      DATABASE_URL: databaseConfigured
+    },
     permissionsGranted: {
-      instagram_business_basic: isConfigured,
-      instagram_business_manage_comments: isConfigured,
-      instagram_business_manage_messages: isConfigured
+      instagram_business_basic: appIdConfigured && appSecretConfigured,
+      instagram_business_manage_comments: appIdConfigured && appSecretConfigured,
+      instagram_business_manage_messages: appIdConfigured && appSecretConfigured
     },
     tokenEncryption: {
       algorithm: "AES-256-GCM",
@@ -31348,9 +31390,39 @@ app.get("/api/auth/me", async (req, res) => {
     res.status(500).json({ success: false, error: sanitizeError(err) });
   }
 });
-app.get("/api/setup/status", (_req, res) => {
+app.get(["/api/setup-status", "/api/setup/status"], (_req, res) => {
   const status = getSetupStatus();
   res.json(status);
+});
+app.get("/api/instagram/connection", async (req, res) => {
+  try {
+    const token = req.cookies?.session_token || req.headers["x-session-token"];
+    if (!token) {
+      res.json({ connected: false });
+      return;
+    }
+    const sessionUser = await dbGetSessionWithUser(token);
+    if (!sessionUser) {
+      res.json({ connected: false });
+      return;
+    }
+    const ig = await dbGetInstagramAccount(sessionUser.id);
+    if (ig && ig.is_connected) {
+      res.json({
+        connected: true,
+        account: {
+          username: ig.username,
+          name: ig.name,
+          profilePictureUrl: ig.profile_picture_url,
+          connectedAt: ig.updated_at
+        }
+      });
+      return;
+    }
+    res.json({ connected: false });
+  } catch (_err) {
+    res.json({ connected: false });
+  }
 });
 app.get("/api/auth/instagram/url", (req, res) => {
   const state = req.query.state || crypto4.randomBytes(16).toString("hex");

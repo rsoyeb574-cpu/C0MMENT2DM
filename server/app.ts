@@ -446,9 +446,41 @@ app.get('/api/auth/me', async (req: AuthenticatedRequest, res: Response) => {
 // --------------------------------------------------------------------------
 // 3. Instagram Setup, OAuth & Webhooks
 // --------------------------------------------------------------------------
-app.get('/api/setup/status', (_req: Request, res: Response) => {
+// Both /api/setup-status and /api/setup/status report non-sensitive configuration booleans
+app.get(['/api/setup-status', '/api/setup/status'], (_req: Request, res: Response) => {
   const status = getSetupStatus();
   res.json(status);
+});
+
+app.get('/api/instagram/connection', async (req: Request, res: Response) => {
+  try {
+    const token = req.cookies?.session_token || (req.headers['x-session-token'] as string);
+    if (!token) {
+      res.json({ connected: false });
+      return;
+    }
+    const sessionUser = await dbGetSessionWithUser(token);
+    if (!sessionUser) {
+      res.json({ connected: false });
+      return;
+    }
+    const ig = await dbGetInstagramAccount(sessionUser.id);
+    if (ig && ig.is_connected) {
+      res.json({
+        connected: true,
+        account: {
+          username: ig.username,
+          name: ig.name,
+          profilePictureUrl: ig.profile_picture_url,
+          connectedAt: ig.updated_at,
+        },
+      });
+      return;
+    }
+    res.json({ connected: false });
+  } catch (_err: any) {
+    res.json({ connected: false });
+  }
 });
 
 app.get('/api/auth/instagram/url', (req: Request, res: Response) => {
